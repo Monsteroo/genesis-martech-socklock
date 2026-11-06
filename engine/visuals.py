@@ -4,19 +4,27 @@ A provider has `kind` ("image" or "video"), `name`, `available() -> (bool, reaso
 `generate(prompt, dest) -> Path`. Built in: codex (the user's ChatGPT subscription through the Codex CLI),
 demo (a bundled sample frame) and NoImages (nothing configured). Other providers, for example HeyGen for
 video, plug in through register_provider(). There is no automatic fallback between providers."""
+import base64
 import json
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from engine.llm import LLMError, clean_env, codex_binary, require_login, subprocess_runner
+from engine.openai_api import OpenAIError, request_json
 
 IMAGE_TIMEOUT = 300
 MAX_IMAGE_PROMPT = 4000
 IMAGE_SANDBOX = "read-only"
+DEFAULT_IMAGE_MODEL = "gpt-image-2"
+DEFAULT_IMAGE_SIZE = "1024x1536"
+DEFAULT_IMAGE_QUALITY = "medium"
+IMAGE_API_TIMEOUT = 300
+PNG_MAGIC = bytes([137, 80, 78, 71, 13, 10, 26, 10])
 DEMO_FRAME = Path(__file__).resolve().parent.parent / "samples" / "demo" / "frame.png"
 NO_TEXT = "No text, no logos, no watermarks. Vertical 9:16 composition."
 INSTRUCTION = (
@@ -37,6 +45,27 @@ def _atomic_copy(src, dest):
         part.unlink(missing_ok=True)
         raise
     return dest
+
+
+def _atomic_write(dest, data):
+    """Write bytes to a .part file, then rename, so an interrupted write never looks like a finished image."""
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    part = dest.with_name(dest.name + ".part")
+    try:
+        part.write_bytes(data)
+        os.replace(part, dest)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
+    return dest
+
+
+def _env_float(name, default=0):
+    try:
+        return float(os.environ.get(name) or default)
+    except ValueError:
+        return default
 
 
 class VisualsUnavailable(LLMError):
@@ -74,8 +103,9 @@ class DemoImageProvider:
     kind = "image"
     name = "demo"
 
-    def __init__(self, frame=DEMO_FRAME):
+    def __init__(self, frame=DEMO_FRAME, delay=None):
         self.frame = Path(frame)
+        self.delay = delay if delay is not None else _env_float("DEMO_IMAGE_DELAY")
 
     def available(self):
         if self.frame.is_file():
@@ -86,6 +116,8 @@ class DemoImageProvider:
         ok, reason = self.available()
         if not ok:
             raise VisualsUnavailable(reason)
+        if self.delay > 0:
+            time.sleep(self.delay)
         return _atomic_copy(self.frame, dest)
 
 
@@ -190,6 +222,45 @@ class CodexImageProvider:
         return _atomic_copy(found[-1], dest)
 
 
+class OpenAIImageProvider:
+    kind = "image"
+    name = "openai"
+
+    def __init__(self, model=None, size=None, quality=None, transport=None):
+        self.model = model or os.environ.get("OPENAI_IMAGE_MODEL") or DEFAULT_IMAGE_MODEL
+        self.size = size or os.environ.get("OPENAI_IMAGE_SIZE") or DEFAULT_IMAGE_SIZE
+        self.quality = quality or os.environ.get("OPENAI_IMAGE_QUALITY") or DEFAULT_IMAGE_QUALITY
+        self.transport = transport
+
+    def available(self):
+        if (os.environ.get("OPENAI_API_KEY") or "").strip():
+            return True, ""
+        return False, "Не задано OPENAI_API_KEY (додайте ключ у файл .env)."
+
+    def generate(self, prompt, dest):
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise LLMError("Порожній опис зображення.")
+        if len(prompt) > MAX_IMAGE_PROMPT:
+            raise LLMError(f"Опис зображення задовгий ({len(prompt)} символів, ліміт {MAX_IMAGE_PROMPT}).")
+        data = request_json(
+            "POST", "/images/generations",
+            {"model": self.model, "prompt": prompt, "size": self.size, "quality": self.quality,
+             "n": 1, "output_format": "png"},
+            transport=self.transport, timeout=IMAGE_API_TIMEOUT,
+        )
+        try:
+            encoded = data["data"][0]["b64_json"]
+        except (KeyError, IndexError, TypeError):
+            raise OpenAIError("OpenAI не повернув зображення (у відповіді немає data[0].b64_json).") from None
+        try:
+            png = base64.b64decode(encoded, validate=True)
+        except (ValueError, TypeError):
+            raise OpenAIError("OpenAI повернув пошкоджені дані зображення.") from None
+        if not png.startswith(PNG_MAGIC):
+            raise OpenAIError("OpenAI повернув не PNG.")
+        return _atomic_write(dest, png)
+
+
 _REGISTRY = {}
 
 
@@ -206,3 +277,4 @@ def get_provider(name, kind="image", **kw):
 
 register_provider("codex", "image", CodexImageProvider)
 register_provider("demo", "image", DemoImageProvider)
+register_provider("openai", "image", OpenAIImageProvider)

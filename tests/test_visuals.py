@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import subprocess
@@ -8,7 +9,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from engine import llm, visuals
-from tests.helpers import PNG_MAGIC
+from tests.helpers import PNG_MAGIC, TEST_KEY, FakeTransport, http_error, http_ok
 
 ORIGINAL = {"pain": "Lost socks"}
 
@@ -248,6 +249,7 @@ class RegistryTests(unittest.TestCase):
     def test_builtin_providers(self):
         self.assertEqual(visuals.get_provider("demo").name, "demo")
         self.assertEqual(visuals.get_provider("codex").name, "codex")
+        self.assertEqual(visuals.get_provider("openai").name, "openai")
 
     def test_unknown_provider_raises(self):
         with self.assertRaises(visuals.VisualsUnavailable):
@@ -275,6 +277,120 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(p.generate("script", dest), dest)
         # the image side is unaffected
         self.assertEqual(visuals.get_provider("demo").kind, "image")
+
+
+def image_response(data=PNG_MAGIC + b"img"):
+    return http_ok({"data": [{"b64_json": base64.b64encode(data).decode("ascii")}]})
+
+
+class OpenAIImageProviderTests(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {"OPENAI_API_KEY": TEST_KEY})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.dest = Path(tempfile.mkdtemp()) / "lib" / "o001" / "shot-1.png"
+
+    def test_generates_and_writes_the_png(self):
+        t = FakeTransport(image_response())
+        p = visuals.OpenAIImageProvider(transport=t)
+        self.assertEqual(p.generate("a scene", self.dest), self.dest)
+        self.assertEqual(self.dest.read_bytes(), PNG_MAGIC + b"img")
+        self.assertEqual(list(self.dest.parent.glob("*.part")), [])
+        req = t.requests[0]
+        self.assertTrue(req["url"].endswith("/images/generations"))
+        body = json.loads(req["body"])
+        self.assertEqual(body, {"model": "gpt-image-2", "prompt": "a scene", "size": "1024x1536",
+                                "quality": "medium", "n": 1, "output_format": "png"})
+        self.assertEqual(req["timeout"], visuals.IMAGE_API_TIMEOUT)
+
+    def test_env_and_explicit_settings(self):
+        env = {"OPENAI_IMAGE_MODEL": "m-env", "OPENAI_IMAGE_SIZE": "1024x1024", "OPENAI_IMAGE_QUALITY": "low"}
+        with mock.patch.dict(os.environ, env):
+            p = visuals.OpenAIImageProvider()
+            self.assertEqual((p.model, p.size, p.quality), ("m-env", "1024x1024", "low"))
+            q = visuals.OpenAIImageProvider(model="m2", size="1536x1024", quality="high")
+            self.assertEqual((q.model, q.size, q.quality), ("m2", "1536x1024", "high"))
+
+    def test_available_depends_on_the_key_only(self):
+        self.assertEqual(visuals.OpenAIImageProvider().available(), (True, ""))
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            ok, reason = visuals.OpenAIImageProvider().available()
+        self.assertFalse(ok)
+        self.assertIn(".env", reason)
+
+    def test_missing_key_never_calls_the_transport(self):
+        t = FakeTransport()
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            with self.assertRaises(llm.LLMError):
+                visuals.OpenAIImageProvider(transport=t).generate("a scene", self.dest)
+        self.assertEqual(t.requests, [])
+
+    def test_bad_answers_leave_no_file(self):
+        bad = [
+            http_ok({"data": []}),
+            http_ok({"data": [{"b64_json": "not base64!!"}]}),
+            image_response(b"not a png at all"),
+            http_ok({}),
+        ]
+        for response in bad:
+            with self.assertRaises(llm.LLMError):
+                visuals.OpenAIImageProvider(transport=FakeTransport(response)).generate("a scene", self.dest)
+            self.assertFalse(self.dest.exists())
+
+    def test_api_errors_are_not_retried_and_never_leak_the_key(self):
+        t = FakeTransport(http_error(429, {"error": {"message": f"limit for {TEST_KEY}"}}), image_response())
+        with self.assertRaises(llm.LLMError) as ctx:
+            visuals.OpenAIImageProvider(transport=t).generate("a scene", self.dest)
+        self.assertNotIn(TEST_KEY, str(ctx.exception))
+        self.assertEqual(len(t.requests), 1)
+        self.assertFalse(self.dest.exists())
+
+    def test_empty_and_oversized_prompts_never_call_the_transport(self):
+        t = FakeTransport()
+        p = visuals.OpenAIImageProvider(transport=t)
+        for bad in ("", "   ", "x" * (visuals.MAX_IMAGE_PROMPT + 1)):
+            with self.assertRaises(llm.LLMError):
+                p.generate(bad, self.dest)
+        self.assertEqual(t.requests, [])
+
+    def test_two_providers_can_generate_in_parallel_threads(self):
+        import threading
+        results, errors = [], []
+
+        def run(n):
+            try:
+                t = FakeTransport(image_response(PNG_MAGIC + bytes([n])))
+                dest = self.dest.parent / f"shot-{n}.png"
+                visuals.OpenAIImageProvider(transport=t).generate("a scene", dest)
+                results.append(dest.read_bytes())
+            except Exception as exc:  # pragma: no cover - reported below
+                errors.append(exc)
+
+        threads = [threading.Thread(target=run, args=(n,)) for n in range(1, 5)]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted(results), sorted(PNG_MAGIC + bytes([n]) for n in range(1, 5)))
+
+
+class DemoDelayTests(unittest.TestCase):
+    def test_delay_slows_the_demo_provider_down(self):
+        import time
+        tmp = Path(tempfile.mkdtemp())
+        frame = tmp / "frame.png"
+        frame.write_bytes(PNG_MAGIC + b"demo")
+        p = visuals.DemoImageProvider(frame=frame, delay=0.2)
+        start = time.monotonic()
+        p.generate("x", tmp / "out.png")
+        self.assertGreaterEqual(time.monotonic() - start, 0.19)
+
+    def test_delay_comes_from_the_environment_and_defaults_to_zero(self):
+        frame = Path(tempfile.mkdtemp()) / "frame.png"
+        self.assertEqual(visuals.DemoImageProvider(frame=frame).delay, 0)
+        with mock.patch.dict(os.environ, {"DEMO_IMAGE_DELAY": "1.5"}):
+            self.assertEqual(visuals.DemoImageProvider(frame=frame).delay, 1.5)
+        with mock.patch.dict(os.environ, {"DEMO_IMAGE_DELAY": "junk"}):
+            self.assertEqual(visuals.DemoImageProvider(frame=frame).delay, 0)
 
 
 if __name__ == "__main__":
