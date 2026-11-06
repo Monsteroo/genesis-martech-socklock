@@ -129,11 +129,18 @@ function radioList(box, items, name, label, onPick) {
 }
 
 async function loadImage(slot, id, key) {
-  const res = await fetch(`/api/image/${id}/${key}.png`, {headers: {"X-Token": TOKEN}});
-  if (!res.ok) return false;
-  const blob = await res.blob();
-  slot.replaceChildren(h("img", {src: URL.createObjectURL(blob), alt: key, className: "thumb"}));
-  return true;
+  try {
+    const res = await fetch(`/api/image/${id}/${key}.png`, {headers: {"X-Token": TOKEN}});
+    if (!res.ok) throw new Error("http " + res.status);
+    const blob = await res.blob();
+    if (slot._url) URL.revokeObjectURL(slot._url);
+    slot._url = URL.createObjectURL(blob);
+    slot.replaceChildren(h("img", {src: slot._url, alt: key, className: "thumb"}));
+    return true;
+  } catch (e) {
+    slot.textContent = "Не вдалося завантажити зображення.";
+    return false;
+  }
 }
 
 async function makeImage(payload, slot, id, key) {
@@ -146,7 +153,10 @@ async function makeImage(payload, slot, id, key) {
 async function showExisting(id, slots) {   // slots: {key: element}
   const data = await api("/api/images?id=" + id);
   if (!data) return;
-  for (const key of data.keys) if (slots[key]) await loadImage(slots[key], id, key);
+  for (const key of data.keys) {
+    if (!slots[key]) continue;
+    try { await loadImage(slots[key], id, key); } catch (e) { /* loadImage already reports in the slot */ }
+  }
 }
 
 function renderOriginal(box, rec, withFrames = false) {
@@ -174,7 +184,10 @@ function renderOriginal(box, rec, withFrames = false) {
     all.onclick = async () => {
       for (let i = 0; i < rec.shot_list.length; i++) {
         const key = "shot-" + (i + 1);
-        if (!(await makeImage({kind: "shot", id: rec.id, index: i + 1}, slots[key], rec.id, key))) break;
+        if (!(await makeImage({kind: "shot", id: rec.id, index: i + 1}, slots[key], rec.id, key))) {
+          $("err").textContent = `Кадр ${i + 1} не вдалося створити.`;
+          break;
+        }
       }
     };
     card.append(all);

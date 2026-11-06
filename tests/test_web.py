@@ -44,7 +44,16 @@ def raw_request(port, method, path, body=None, headers=None, host=None):
     return resp.status, payload, ctype
 
 
-class WebTests(unittest.TestCase):
+class HttpMixin:
+    def request(self, method, path, body=None, headers=None, host=None):
+        status, data, _ = raw_request(self.port, method, path, body, headers, host)
+        return status, data.decode("utf-8")
+
+    def request_raw(self, method, path, headers=None, host=None):
+        return raw_request(self.port, method, path, None, headers, host)
+
+
+class WebTests(HttpMixin, unittest.TestCase):
     def setUp(self):
         self.engine = Engine(make_root(), FakeLLM(variants_answer(5)))
         self.engine.library.add("Socks", "lost", SAMPLE_BLOCKS)
@@ -55,10 +64,6 @@ class WebTests(unittest.TestCase):
     def tearDown(self):
         self.server.shutdown()
         self.server.server_close()
-
-    def request(self, method, path, body=None, headers=None, host=None):
-        status, data, _ = raw_request(self.port, method, path, body, headers, host)
-        return status, data.decode("utf-8")
 
     def test_index_contains_the_token_and_two_tabs(self):
         status, html = self.request("GET", "/")
@@ -255,11 +260,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(len(data["blocks"]), 6)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
-class ImageWebTests(unittest.TestCase):
+class ImageWebTests(HttpMixin, unittest.TestCase):
     def setUp(self):
         self.images = FakeImages()
         self.engine = Engine(make_root(), FakeLLM(), images=self.images)
@@ -271,13 +272,6 @@ class ImageWebTests(unittest.TestCase):
     def tearDown(self):
         self.server.shutdown()
         self.server.server_close()
-
-    def request(self, method, path, body=None, headers=None, host=None):
-        status, data, _ = raw_request(self.port, method, path, body, headers, host)
-        return status, data.decode("utf-8")
-
-    def request_raw(self, method, path, headers=None, host=None):
-        return raw_request(self.port, method, path, None, headers, host)
 
     def test_post_image_then_get_png_with_token(self):
         status, text = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1},
@@ -341,3 +335,29 @@ class ImageWebTests(unittest.TestCase):
         self.images.fail = None
         status, _ = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1}, headers)
         self.assertEqual(status, 200)
+
+    def test_png_response_has_nosniff(self):
+        self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1}, {"X-Token": self.server.token})
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.request("GET", "/api/image/o001/shot-1.png", headers={"X-Token": self.server.token})
+        resp = conn.getresponse()
+        resp.read()
+        self.assertEqual(resp.getheader("X-Content-Type-Options"), "nosniff")
+        conn.close()
+
+    def test_unknown_original_png_is_404(self):
+        status, _, _ = self.request_raw("GET", "/api/image/o999/shot-1.png", headers={"X-Token": self.server.token})
+        self.assertEqual(status, 404)
+
+    def test_repeated_post_is_cached_with_one_provider_call(self):
+        headers = {"X-Token": self.server.token}
+        body = {"kind": "shot", "id": "o001", "index": 1}
+        _, first = self.request("POST", "/api/image", body, headers)
+        _, second = self.request("POST", "/api/image", body, headers)
+        self.assertFalse(json.loads(first)["data"]["cached"])
+        self.assertTrue(json.loads(second)["data"]["cached"])
+        self.assertEqual(len(self.images.prompts), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

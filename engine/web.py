@@ -11,7 +11,7 @@ from engine.llm import LLMError
 
 PAGE = Path(__file__).resolve().parent.parent / "web" / "index.html"
 MAX_BODY = 100_000
-IMAGE_ROUTE = re.compile(r"/api/image/(o\d{3})/((?:shot-\d+|variant-[0-9a-f]{8}))\.png")
+IMAGE_ROUTE = re.compile(r"/api/image/(o[0-9]{3})/((?:shot-[0-9]+|variant-[0-9a-f]{8}))\.png")
 
 ROUTES = {
     "/api/pains": lambda e, b: e.pains(b["text"]),
@@ -51,6 +51,7 @@ def make_server(engine, port=8780):
         def _send_bytes(self, code, data, ctype):
             self.send_response(code)
             self.send_header("Content-Type", ctype)
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -92,9 +93,11 @@ def make_server(engine, port=8780):
                     path = engine.image_store.path(match.group(1), match.group(2))
                 except LibraryError as exc:
                     return self._json(400, {"ok": False, "error": str(exc)})
-                if not path.is_file():
+                try:
+                    data = path.read_bytes()
+                except OSError:
                     return self._json(404, {"ok": False, "error": "Зображення немає"})
-                return self._send_bytes(200, path.read_bytes(), "image/png")
+                return self._send_bytes(200, data, "image/png")
             self._json(404, {"ok": False, "error": "Не знайдено"})
 
         def do_POST(self):
