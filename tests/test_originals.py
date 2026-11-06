@@ -37,6 +37,24 @@ class FindPainsTests(unittest.TestCase):
         self.assertEqual(len(origin.find_pains(fake, TEXT)["pains"]), 1)
 
 
+    def test_curly_apostrophe_in_text_matches_straight_quote(self):
+        curly = "I can" + chr(0x2019) + "t find my socks."
+        fake = FakeLLM({"pains": [{"pain": "Lost", "quotes": ["I can't find my socks."]}]})
+        result = origin.find_pains(fake, curly)
+        self.assertEqual(result["pains"][0]["quotes"], ["I can't find my socks."])
+
+    def test_straight_apostrophe_in_text_matches_curly_quote(self):
+        fake = FakeLLM({"pains": [{"pain": "Lost", "quotes": ["I can" + chr(0x2019) + "t find my socks."]}]})
+        result = origin.find_pains(fake, "I can't find my socks.")
+        self.assertEqual(len(result["pains"]), 1)
+
+    def test_word_change_still_dropped_despite_punctuation_normalisation(self):
+        curly = "I can" + chr(0x2019) + "t find my socks."
+        fake = FakeLLM({"pains": [{"pain": "Lost", "quotes": ["I cannot find my socks."]}]})
+        with self.assertRaises(LLMError):
+            origin.find_pains(fake, curly)
+
+
 class ConceptsTests(unittest.TestCase):
     def test_trimmed_to_count(self):
         items = [{"angle": f"a{i}", "hook": f"h{i}"} for i in range(7)]

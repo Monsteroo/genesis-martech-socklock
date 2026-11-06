@@ -4,7 +4,15 @@ from engine.llm import LLMError
 from engine.llmjson import ask_json
 
 
+_PUNCT = str.maketrans({
+    "\u2018": "'", "\u2019": "'",
+    "\u201c": '"', "\u201d": '"',
+    "\u2013": "-", "\u2014": "-",
+})
+
+
 def _norm(s):
+    s = s.translate(_PUNCT).replace("\u2026", "...")
     return " ".join(s.split()).casefold()
 
 
