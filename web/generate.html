@@ -4,12 +4,344 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Генератор зображень</title>
+<style>
+:root{--bg:#fff;--fg:#1a1a1a;--mut:#667;--line:#e2e2e8;--acc:#4f46e5;--acc-fg:#fff;--card:#fafafc;--bad:#c62828;--sel:#4f46e5}
+@media (prefers-color-scheme:dark){:root{--bg:#14141a;--fg:#eee;--mut:#9aa;--line:#2b2b36;--acc:#8b87ff;--acc-fg:#101014;--card:#1b1b24;--bad:#ff8a80;--sel:#8b87ff}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:16px 16px 96px}
+header{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:12px}
+h1{font-size:22px;margin:0}
+a{color:var(--acc)}
+#banner{background:#fff3cd;color:#5c4400;border:1px solid #ecd38a;border-radius:10px;padding:12px 14px;margin:0 0 12px}
+@media (prefers-color-scheme:dark){#banner{background:#3a3120;color:#f2dc9d;border-color:#6b5a2a}}
+textarea{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);resize:vertical;min-height:84px}
+textarea:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0}
+.lbl{color:var(--mut);min-width:64px;font-size:14px}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:6px 14px;font:inherit;font-size:14px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--acc);color:var(--acc-fg);border-color:var(--acc)}
+#go{background:var(--acc);color:var(--acc-fg);border:0;border-radius:12px;padding:12px 28px;font:inherit;font-weight:600;font-size:17px;cursor:pointer}
+#go:disabled{opacity:.5;cursor:not-allowed}
+.mut{color:var(--mut);font-size:14px}
+#examples a{margin-right:12px;cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-top:18px}
+.tile{position:relative;border:1px solid var(--line);border-radius:14px;background:var(--card);padding:8px;display:flex;flex-direction:column;gap:6px}
+.tile.sel{border-color:var(--sel);box-shadow:0 0 0 2px var(--sel)}
+.tile .body{min-height:140px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+.thumb{width:100%;display:block;border-radius:10px;cursor:zoom-in}
+.pick{position:absolute;top:14px;left:14px;width:20px;height:20px;accent-color:var(--sel);z-index:1}
+.cap{font-size:13px;color:var(--mut);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.acts{display:flex;flex-wrap:wrap;gap:6px}
+.acts button{border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:8px;padding:5px 10px;font:inherit;font-size:13px;cursor:pointer}
+.bad{color:var(--bad);font-size:14px;text-align:center}
+.spin{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:s 1s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 16px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;z-index:5}
+.bar button{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:10px;padding:8px 16px;font:inherit;cursor:pointer}
+.bar button.main{background:var(--acc);color:var(--acc-fg);border-color:var(--acc)}
+[hidden]{display:none!important}
+</style>
 </head>
 <body>
 <main>
-<h1>Генератор зображень</h1>
-<p><a href="/workflow">Робочий процес</a></p>
+  <header>
+    <h1>Генератор зображень</h1>
+    <a href="/workflow">Сценарії →</a>
+  </header>
+  <div id="banner" hidden></div>
+
+  <textarea id="prompt" placeholder="Опишіть, що потрібно. Наприклад: смугасті шкарпетки на дерев'яній підлозі, м'яке світло"></textarea>
+  <div id="examples" class="mut">Приклади:
+    <a data-t="Смугасті шкарпетки на дерев'яній підлозі, м'яке світло">шкарпетки на підлозі</a>
+    <a data-t="Дівчина в кафе тримає чашку кави, природне світло з вікна">кава в кафе</a>
+    <a data-t="Яскравий пакет еко-кави на білому тлі">пакет кави</a>
+  </div>
+  <div class="row"><span class="lbl">Скільки</span><div class="seg" id="count"></div></div>
+  <div class="row"><span class="lbl">Формат</span><div class="seg" id="format"></div></div>
+  <div class="row"><span class="lbl">Стиль</span><div class="seg" id="style"></div></div>
+  <div class="row"><button id="go" type="button">Згенерувати</button><span id="hint" class="mut"></span></div>
+
+  <div id="empty" class="mut" hidden>Тут з'являться ваші зображення. Опишіть ідею й натисніть «Згенерувати».</div>
+  <section id="grid" class="grid"></section>
 </main>
-<script>const TOKEN = "__TOKEN__";</script>
+
+<div id="bar" class="bar" hidden>
+  <span>Вибрано: <b id="n">0</b></span>
+  <button id="dl" class="main" type="button">Завантажити</button>
+  <button id="del" type="button">Видалити</button>
+  <button id="clear" type="button">Зняти вибір</button>
+</div>
+
+<script>
+const TOKEN = "__TOKEN__";
+const $ = (id) => document.getElementById(id);
+const h = (tag, props, ...kids) => {
+  const el = Object.assign(document.createElement(tag), props || {});
+  el.append(...kids);
+  return el;
+};
+
+async function apiQuiet(path, payload) {
+  try {
+    const opts = { headers: { "X-Token": TOKEN } };
+    if (payload !== undefined) {
+      opts.method = "POST";
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(payload);
+    }
+    const res = await fetch(path, opts);
+    const body = await res.json().catch(() => ({}));
+    if (res.ok && body.ok !== false) return { ok: true, data: body.data };
+    return { ok: false, error: body.error || "Помилка сервера" };
+  } catch (e) {
+    return { ok: false, error: "Немає зв'язку з програмою" };
+  }
+}
+
+async function getBlob(url) {
+  const res = await fetch(url, { headers: { "X-Token": TOKEN } });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.blob();
+}
+
+function save(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = h("a", { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+async function runPool(tasks, limit) {
+  let next = 0, failures = 0;
+  async function worker() {
+    while (next < tasks.length) {
+      const task = tasks[next++];
+      try { await task(); } catch (e) { failures++; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+  return failures;
+}
+
+/* ---------- options ---------- */
+const state = { count: 4, format: "vertical", style: "" };
+let CONFIG = { workers: 4, price_usd: null };
+
+function segmented(id, key, options, onChange) {
+  const box = $(id);
+  const buttons = options.map(([value, label]) => {
+    const b = h("button", { type: "button" }, label);
+    b.addEventListener("click", () => {
+      state[key] = value;
+      refresh();
+      if (onChange) onChange();
+    });
+    box.append(b);
+    return [value, b];
+  });
+  function refresh() {
+    for (const [value, b] of buttons) b.setAttribute("aria-pressed", String(value === state[key]));
+  }
+  refresh();
+}
+
+function updateHint() {
+  $("hint").textContent = CONFIG.price_usd
+    ? "≈ $" + (CONFIG.price_usd * state.count).toFixed(2)
+    : "Кожне зображення оплачується з вашого ключа OpenAI.";
+}
+
+segmented("count", "count", [[1, "1"], [2, "2"], [4, "4"], [6, "6"]], updateHint);
+segmented("format", "format", [["vertical", "Вертикальне"], ["square", "Квадрат"], ["wide", "Горизонтальне"]]);
+segmented("style", "style", [["", "Без стилю"], ["product", "Фото продукту"], ["lifestyle", "Життя"],
+  ["illustration", "Ілюстрація"], ["minimal", "Мінімалізм"]]);
+
+for (const a of document.querySelectorAll("#examples a")) {
+  a.addEventListener("click", () => {
+    $("prompt").value = a.dataset.t;
+    $("prompt").focus();
+  });
+}
+
+/* ---------- tiles ---------- */
+const tiles = new Set();
+
+function updateChrome() {
+  const picked = [...tiles].filter((t) => t.picked());
+  $("bar").hidden = picked.length === 0;
+  $("n").textContent = picked.length;
+  $("empty").hidden = tiles.size > 0;
+}
+
+function makeTile(promptText) {
+  const body = h("div", { className: "body" });
+  const cap = h("div", { className: "cap", textContent: promptText || "", title: promptText || "" });
+  const el = h("div", { className: "tile" }, body, cap);
+  const tile = { el, id: null, blob: null, url: null, timer: null, prompt: promptText, picked: () => false };
+
+  function stopTimer() { clearInterval(tile.timer); tile.timer = null; }
+
+  tile.waiting = (counting = true) => {
+    stopTimer();
+    body.replaceChildren(h("div", { className: "spin" }));
+    if (!counting) return;
+    const label = h("div", { className: "mut" });
+    let sec = 0;
+    const tick = () => { label.textContent = "Генерую… " + sec++ + " с"; };
+    tick();
+    tile.timer = setInterval(tick, 1000);
+    body.append(label);
+  };
+
+  tile.fail = (message, retry) => {
+    stopTimer();
+    const again = h("button", { type: "button" }, "Спробувати ще");
+    again.addEventListener("click", retry);
+    body.replaceChildren(h("div", { className: "bad" }, "Не вийшло: " + message), again);
+  };
+
+  tile.done = async (meta) => {
+    stopTimer();
+    tile.id = meta.id;
+    tile.prompt = meta.prompt || promptText;
+    cap.textContent = cap.title = tile.prompt || "";
+    tile.blob = await getBlob("/api/g/" + meta.id + ".png");
+    tile.url = URL.createObjectURL(tile.blob);
+    const img = h("img", { className: "thumb", src: tile.url, alt: tile.prompt || "Зображення" });
+    img.addEventListener("click", () => window.open(tile.url, "_blank"));
+    body.replaceChildren(img);
+
+    const pick = h("input", { type: "checkbox", className: "pick", title: "Вибрати" });
+    pick.addEventListener("change", () => {
+      el.classList.toggle("sel", pick.checked);
+      updateChrome();
+    });
+    tile.picked = () => pick.checked;
+    const more = h("button", { type: "button" }, "Ще схожі");
+    more.addEventListener("click", () => generate(
+      [0, 1, 2, 3].map((variation) => ({ parent: meta.id, variation })), tile.prompt));
+    const dl = h("button", { type: "button" }, "Завантажити");
+    dl.addEventListener("click", () => save(tile.blob, meta.id + ".png"));
+    el.prepend(pick);
+    el.append(h("div", { className: "acts" }, more, dl));
+  };
+
+  tile.remove = () => {
+    stopTimer();
+    if (tile.url) URL.revokeObjectURL(tile.url);
+    el.remove();
+    tiles.delete(tile);
+  };
+  return tile;
+}
+
+async function generate(payloads, captionText) {
+  const fresh = payloads.map(() => makeTile(captionText));
+  const frag = document.createDocumentFragment();
+  for (const t of fresh) { tiles.add(t); frag.append(t.el); t.waiting(); }
+  $("grid").prepend(frag);
+  updateChrome();
+
+  const tasks = payloads.map((payload, i) => async () => {
+    const t = fresh[i];
+    const run = async (again) => {
+      if (again) t.waiting();
+      const res = await apiQuiet("/api/gen", payload);
+      if (!res.ok) return t.fail(res.error, () => run(true));
+      try {
+        await t.done(res.data);
+        updateChrome();
+      } catch (e) {
+        t.fail("не вдалося завантажити зображення", () => run(true));
+      }
+    };
+    await run(false);
+  });
+  await runPool(tasks, CONFIG.workers);
+}
+
+function generateFromForm() {
+  const text = $("prompt").value.trim();
+  if (!text) {
+    $("hint").textContent = "Опишіть, що потрібно.";
+    $("prompt").focus();
+    return;
+  }
+  updateHint();
+  generate(Array.from({ length: state.count }, () => ({ prompt: text, format: state.format, style: state.style })), text);
+}
+
+$("go").addEventListener("click", generateFromForm);
+$("prompt").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); generateFromForm(); }
+});
+
+/* ---------- selection bar ---------- */
+const picked = () => [...tiles].filter((t) => t.picked());
+
+$("clear").addEventListener("click", () => {
+  for (const t of picked()) {
+    const box = t.el.querySelector(".pick");
+    box.checked = false;
+    t.el.classList.remove("sel");
+  }
+  updateChrome();
+});
+
+$("dl").addEventListener("click", async () => {
+  const chosen = picked();
+  if (chosen.length === 1) return save(chosen[0].blob, chosen[0].id + ".png");
+  try {
+    const ids = chosen.map((t) => t.id).join(",");
+    save(await getBlob("/api/gallery/zip?ids=" + ids), "images.zip");
+  } catch (e) {
+    $("hint").textContent = "Не вдалося створити архів. Спробуйте ще раз.";
+  }
+});
+
+$("del").addEventListener("click", async () => {
+  const chosen = picked();
+  const n = chosen.length;
+  const word = n % 10 >= 1 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "зображення" : "зображень";
+  if (!confirm("Видалити " + n + " " + word + " назавжди?")) return;
+  const res = await apiQuiet("/api/gallery/delete", { ids: chosen.map((t) => t.id) });
+  if (!res.ok) { $("hint").textContent = "Не вдалося видалити: " + res.error; return; }
+  chosen.forEach((t) => t.remove());
+  updateChrome();
+});
+
+/* ---------- start ---------- */
+async function start() {
+  const [config, visuals, gallery] = await Promise.all([
+    apiQuiet("/api/config"), apiQuiet("/api/visuals"), apiQuiet("/api/gallery")]);
+  if (config.ok) CONFIG = Object.assign(CONFIG, config.data);
+  updateHint();
+
+  if (visuals.ok && !visuals.data.available) {
+    $("banner").append(
+      "Щоб почати, додайте ключ OpenAI. Відкрийте файл .env у папці програми, вставте рядок OPENAI_API_KEY=ваш_ключ і перезапустіть програму.",
+      h("div", { className: "mut", textContent: visuals.data.reason || "" }));
+    $("banner").hidden = false;
+    $("go").disabled = true;
+  }
+
+  const items = gallery.ok ? gallery.data.items || [] : [];
+  const loaded = items.map((meta) => {
+    const t = makeTile(meta.prompt);
+    tiles.add(t);
+    $("grid").append(t.el);
+    t.waiting(false);
+    return () => t.done(meta).catch((e) => t.fail("не вдалося завантажити зображення", () => location.reload()));
+  });
+  updateChrome();
+  await runPool(loaded, CONFIG.workers);
+  updateChrome();
+}
+start();
+</script>
 </body>
 </html>
