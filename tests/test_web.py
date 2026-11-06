@@ -52,8 +52,8 @@ class HttpMixin:
         status, data, _ = raw_request(self.port, method, path, body, headers, host)
         return status, data.decode("utf-8")
 
-    def request_raw(self, method, path, headers=None, host=None):
-        return raw_request(self.port, method, path, None, headers, host)
+    def request_raw(self, method, path, headers=None, host=None, body=None):
+        return raw_request(self.port, method, path, body, headers, host)
 
 
 class WebTests(HttpMixin, unittest.TestCase):
@@ -69,7 +69,7 @@ class WebTests(HttpMixin, unittest.TestCase):
         self.server.server_close()
 
     def test_index_contains_the_token_and_two_tabs(self):
-        status, html = self.request("GET", "/")
+        status, html = self.request("GET", "/workflow")
         self.assertEqual(status, 200)
         self.assertIn(self.server.token, html)
         self.assertNotIn("__TOKEN__", html)
@@ -376,6 +376,103 @@ class ImageWebTests(HttpMixin, unittest.TestCase):
         self.assertFalse(json.loads(first)["data"]["cached"])
         self.assertTrue(json.loads(second)["data"]["cached"])
         self.assertEqual(len(self.images.prompts), 1)
+
+
+class QuickWebTests(HttpMixin, unittest.TestCase):
+    def setUp(self):
+        self.fake = FakeImages()
+        self.engine = Engine(make_root(), FakeLLM(), images=self.fake)
+        self.server = make_server(self.engine, port=0, image_workers=2)
+        self.port = self.server.server_port
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.auth = {"X-Token": self.server.token}
+
+    def gen(self, body):
+        status, text = self.request("POST", "/api/gen", body, self.auth)
+        return status, json.loads(text)
+
+    def test_root_is_the_simple_page_and_workflow_is_the_old_one(self):
+        status, html = self.request("GET", "/")
+        self.assertEqual(status, 200)
+        self.assertIn("Генератор зображень", html)
+        self.assertIn(self.server.token, html)
+        self.assertNotIn("__TOKEN__", html)
+        status, old = self.request("GET", "/workflow")
+        self.assertEqual(status, 200)
+        self.assertIn("Оригінали", old)
+        self.assertIn(self.server.token, old)
+
+    def test_gen_without_a_token_is_forbidden(self):
+        status, _ = self.request("POST", "/api/gen", {"prompt": "Socks"})
+        self.assertEqual(status, 403)
+
+    def test_gen_then_png_list_zip_and_delete(self):
+        status, data = self.gen({"prompt": "Socks on a floor", "format": "square", "style": "product"})
+        self.assertEqual(status, 200)
+        meta = data["data"]
+        self.assertRegex(meta["id"], r"^g[0-9a-f]{8}$")
+        self.assertEqual(meta["size"], "1024x1024")
+
+        status, body, ctype = self.request_raw("GET", f"/api/g/{meta['id']}.png", headers=self.auth)
+        self.assertEqual((status, ctype), (200, "image/png"))
+        self.assertTrue(body.startswith(PNG_MAGIC))
+        status, _, _ = self.request_raw("GET", f"/api/g/{meta['id']}.png")
+        self.assertEqual(status, 403)
+
+        status, text = self.request("GET", "/api/gallery")
+        self.assertEqual([m["id"] for m in json.loads(text)["data"]["items"]], [meta["id"]])
+
+        status, body, ctype = self.request_raw("GET", f"/api/gallery/zip?ids={meta['id']}", headers=self.auth)
+        self.assertEqual((status, ctype), (200, "application/zip"))
+        self.assertTrue(body.startswith(b"PK"))
+        status, _, _ = self.request_raw("GET", f"/api/gallery/zip?ids={meta['id']}")
+        self.assertEqual(status, 403)
+
+        status, text = self.request("POST", "/api/gallery/delete", {"ids": [meta["id"]]}, self.auth)
+        self.assertEqual(json.loads(text)["data"], {"deleted": 1})
+        status, _, _ = self.request_raw("GET", f"/api/g/{meta['id']}.png", headers=self.auth)
+        self.assertEqual(status, 404)
+
+    def test_more_like_this_over_http(self):
+        _, first = self.gen({"prompt": "Socks", "format": "wide"})
+        status, second = self.gen({"parent": first["data"]["id"], "variation": 2})
+        self.assertEqual(status, 200)
+        self.assertEqual(second["data"]["parent"], first["data"]["id"])
+        self.assertEqual(self.fake.sizes, ["1536x1024", "1536x1024"])
+
+    def test_validation_errors_are_400_with_a_message(self):
+        for body in ({"prompt": ""}, {"prompt": "x", "format": "huge"}, {"parent": "g0000abcd"}):
+            status, data = self.gen(body)
+            self.assertEqual(status, 400, body)
+            self.assertTrue(data["error"])
+        self.assertEqual(self.fake.prompts, [])
+
+    def test_bad_png_paths_are_not_served(self):
+        for path in ("/api/g/g0000abcd.png", "/api/g/..%2Fx.png", "/api/g/gZZZZZZZZ.png"):
+            status, _, _ = self.request_raw("GET", path, headers=self.auth)
+            self.assertEqual(status, 404, path)
+
+    def test_gallery_zip_without_ids_is_400(self):
+        status, _, _ = self.request_raw("GET", "/api/gallery/zip?ids=", headers=self.auth)
+        self.assertEqual(status, 400)
+
+    def test_gen_is_an_image_route_and_delete_needs_no_lock(self):
+        self.assertIn("/api/gen", web.IMAGE_ROUTES)
+        self.assertNotIn("/api/gallery/delete", web.IMAGE_ROUTES)
+
+    def test_provider_errors_do_not_leak_and_release_the_slot(self):
+        engine = Engine(make_root(), FakeLLM(), images=FakeImages(fail=LLMError("boom")))
+        server = make_server(engine, port=0, image_workers=1)
+        self.port = server.server_port
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        for _ in range(2):  # a second call proves the slot was released
+            status, text = self.request("POST", "/api/gen", {"prompt": "Socks"}, {"X-Token": server.token})
+            self.assertEqual(status, 400)
+            self.assertIn("boom", json.loads(text)["error"])
 
 
 if __name__ == "__main__":

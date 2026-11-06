@@ -10,8 +10,9 @@ from urllib.parse import parse_qs, urlparse
 from engine.library import LibraryError
 from engine.llm import LLMError
 
-PAGE = Path(__file__).resolve().parent.parent / "web" / "index.html"
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 MAX_BODY = 100_000
+GALLERY_PNG = re.compile(r"/api/g/(g[0-9a-f]{8})\.png")
 IMAGE_ROUTE = re.compile(r"/api/image/(o[0-9]{3})/((?:shot-[0-9]{1,6}|variant-[0-9a-f]{8}))\.png")
 
 ROUTES = {
@@ -23,9 +24,13 @@ ROUTES = {
     "/api/localize": lambda e, b: e.localize(b["id"], b["markets"]),
     "/api/compose": lambda e, b: e.compose(b["pain"], b["reuse"], b["new"]),
     "/api/image": lambda e, b: e.image(b),
+    "/api/gen": lambda e, b: e.quick_image(b.get("prompt", ""), b.get("format") or "vertical", b.get("style"),
+                                           b.get("parent"), b.get("variation", 0)),
+    "/api/gallery/delete": lambda e, b: e.delete_gallery(b["ids"]),
 }
 
 IMAGE_ROUTES = {"/api/image", "/api/gen"}
+NO_LOCK_ROUTES = {"/api/gallery/delete"}
 IMAGE_QUEUE_TIMEOUT = 600
 
 
@@ -49,7 +54,10 @@ def make_server(engine, port=8780, image_workers=None):
     workers = image_workers or image_workers_from_env()
     busy = threading.Lock()  # text requests run one at a time; images run up to `workers` in parallel
     slots = threading.BoundedSemaphore(workers)
-    html = PAGE.read_text(encoding="utf-8").replace("__TOKEN__", token)
+    pages = {
+        "/": (WEB_DIR / "generate.html").read_text(encoding="utf-8").replace("__TOKEN__", token),
+        "/workflow": (WEB_DIR / "index.html").read_text(encoding="utf-8").replace("__TOKEN__", token),
+    }
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -69,12 +77,15 @@ def make_server(engine, port=8780, image_workers=None):
             self.end_headers()
             self.wfile.write(data)
 
-        def _send_bytes(self, code, data, ctype):
+        def _send_bytes(self, code, data, ctype, extra_headers=None, cache="no-store"):
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", cache)
+            for key, value in (extra_headers or {}).items():
+                if key != "X-Content-Type-Options":
+                    self.send_header(key, value)
             self.end_headers()
             self.wfile.write(data)
 
@@ -89,8 +100,8 @@ def make_server(engine, port=8780, image_workers=None):
             if not self._host_ok():
                 return self._json(403, {"ok": False, "error": "Host не дозволено"})
             url = urlparse(self.path)
-            if url.path == "/":
-                return self._send(200, html, "text/html; charset=utf-8")
+            if url.path in pages:
+                return self._send(200, pages[url.path], "text/html; charset=utf-8")
             if url.path == "/api/originals":
                 status = parse_qs(url.query).get("status", [None])[0]
                 try:
@@ -127,6 +138,29 @@ def make_server(engine, port=8780, image_workers=None):
                 except OSError:
                     return self._json(404, {"ok": False, "error": "Зображення немає"})
                 return self._send_bytes(200, data, "image/png")
+            if url.path == "/api/gallery":
+                return self._json(200, {"ok": True, "data": engine.list_gallery()})
+            match = GALLERY_PNG.fullmatch(url.path)
+            if match:
+                if not self._token_ok():
+                    return self._json(403, {"ok": False, "error": "Невірний токен"})
+                try:
+                    data = engine.gallery.path(match.group(1)).read_bytes()
+                except OSError:
+                    return self._json(404, {"ok": False, "error": "Зображення немає"})
+                return self._send_bytes(200, data, "image/png", {"X-Content-Type-Options": "nosniff"},
+                                        cache="private, max-age=3600")
+            if url.path == "/api/gallery/zip":
+                if not self._token_ok():
+                    return self._json(403, {"ok": False, "error": "Невірний токен"})
+                ids = [i for i in parse_qs(url.query).get("ids", [""])[0].split(",") if i]
+                try:
+                    data = engine.gallery_zip(ids)
+                except LibraryError as exc:
+                    return self._json(400, {"ok": False, "error": str(exc)})
+                return self._send_bytes(200, data, "application/zip", {
+                    "Content-Disposition": 'attachment; filename="images.zip"',
+                    "X-Content-Type-Options": "nosniff"})
             self._json(404, {"ok": False, "error": "Не знайдено"})
 
         def do_POST(self):
@@ -153,10 +187,13 @@ def make_server(engine, port=8780, image_workers=None):
             if route is None:
                 return self._json(404, {"ok": False, "error": "Не знайдено"})
             is_image = path in IMAGE_ROUTES
-            if is_image:
-                acquired = slots.acquire(timeout=IMAGE_QUEUE_TIMEOUT)
+            lock = None if path in NO_LOCK_ROUTES else (slots if is_image else busy)
+            if lock is None:
+                acquired = True
+            elif is_image:
+                acquired = lock.acquire(timeout=IMAGE_QUEUE_TIMEOUT)
             else:
-                acquired = busy.acquire(blocking=False)
+                acquired = lock.acquire(blocking=False)
             if not acquired:
                 message = "Усі слоти генерації зайняті, спробуйте пізніше." if is_image else "Інший запит ще виконується."
                 return self._json(409, {"ok": False, "error": message})
@@ -169,7 +206,8 @@ def make_server(engine, port=8780, image_workers=None):
             except Exception:  # a bug must not kill the connection silently or hold a lock
                 self._json(500, {"ok": False, "error": "Внутрішня помилка сервера"})
             finally:
-                (slots if is_image else busy).release()
+                if lock is not None:
+                    lock.release()
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.token = token
