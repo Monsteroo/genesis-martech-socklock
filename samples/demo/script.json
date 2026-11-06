@@ -1,0 +1,16 @@
+{"title": "Where the missing socks live",
+ "blocks": [
+  {"type": "HOOK", "text": "I found where all your missing socks live."},
+  {"type": "PAIN", "text": "Every wash, one sock vanishes. You keep the lonely one for months, just in case."},
+  {"type": "DEMO", "text": "SockLock has a tiny magnet in the cuff. The pair snaps together and stays together through wash and dry."},
+  {"type": "PROOF", "text": "Customers say the pairs finally stay together."},
+  {"type": "ONSCREEN", "text": "No more lonely socks"},
+  {"type": "CTA", "text": "Try 5 pairs for $29, delivered every quarter."}
+ ],
+ "shot_list": [
+  "Washing machine drum, close-up, a single sock spinning",
+  "Hand pulling one sock from a drawer of orphans",
+  "Macro: magnet in the cuff snapping two socks together",
+  "Pair coming out of the dryer still together",
+  "End card: 5 pairs for $29"
+ ]}
