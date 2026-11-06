@@ -6,6 +6,7 @@ demo (a bundled sample frame) and NoImages (nothing configured). Other providers
 video, plug in through register_provider(). There is no automatic fallback between providers."""
 import base64
 import json
+import math
 import os
 import re
 import shutil
@@ -24,6 +25,7 @@ DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_IMAGE_SIZE = "1024x1536"
 DEFAULT_IMAGE_QUALITY = "medium"
 IMAGE_API_TIMEOUT = 300
+MAX_IMAGE_B64 = 40_000_000
 PNG_MAGIC = bytes([137, 80, 78, 71, 13, 10, 26, 10])
 DEMO_FRAME = Path(__file__).resolve().parent.parent / "samples" / "demo" / "frame.png"
 NO_TEXT = "No text, no logos, no watermarks. Vertical 9:16 composition."
@@ -34,38 +36,43 @@ INSTRUCTION = (
 
 
 def _atomic_copy(src, dest):
-    """Copy to a .part file, then rename, so an interrupted copy never looks like a finished image."""
+    """Copy to a unique .part file, then rename, so an interrupted copy never looks like a finished image."""
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    part = dest.with_name(dest.name + ".part")
+    fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=dest.name + ".", suffix=".part")
+    os.close(fd)
     try:
-        shutil.copyfile(src, part)
-        os.replace(part, dest)
+        shutil.copyfile(src, tmp)
+        os.replace(tmp, dest)
     except BaseException:
-        part.unlink(missing_ok=True)
+        Path(tmp).unlink(missing_ok=True)
         raise
     return dest
 
 
 def _atomic_write(dest, data):
-    """Write bytes to a .part file, then rename, so an interrupted write never looks like a finished image."""
+    """Write bytes to a unique .part file, then rename, so an interrupted write never looks like a finished image."""
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    part = dest.with_name(dest.name + ".part")
+    fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=dest.name + ".", suffix=".part")
     try:
-        part.write_bytes(data)
-        os.replace(part, dest)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        os.replace(tmp, dest)
     except BaseException:
-        part.unlink(missing_ok=True)
+        Path(tmp).unlink(missing_ok=True)
         raise
     return dest
 
 
 def _env_float(name, default=0):
     try:
-        return float(os.environ.get(name) or default)
+        value = float(os.environ.get(name) or default)
     except ValueError:
         return default
+    if not math.isfinite(value):
+        return default
+    return min(max(value, 0), 60)
 
 
 class VisualsUnavailable(LLMError):
@@ -242,6 +249,7 @@ class OpenAIImageProvider:
             raise LLMError("Порожній опис зображення.")
         if len(prompt) > MAX_IMAGE_PROMPT:
             raise LLMError(f"Опис зображення задовгий ({len(prompt)} символів, ліміт {MAX_IMAGE_PROMPT}).")
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
         data = request_json(
             "POST", "/images/generations",
             {"model": self.model, "prompt": prompt, "size": self.size, "quality": self.quality,
@@ -252,8 +260,10 @@ class OpenAIImageProvider:
             encoded = data["data"][0]["b64_json"]
         except (KeyError, IndexError, TypeError):
             raise OpenAIError("OpenAI не повернув зображення (у відповіді немає data[0].b64_json).") from None
+        if isinstance(encoded, str) and len(encoded) > MAX_IMAGE_B64:
+            raise OpenAIError("OpenAI повернув надто великі дані зображення.")
         try:
-            png = base64.b64decode(encoded, validate=True)
+            png = base64.b64decode("".join(encoded.split()), validate=True)
         except (ValueError, TypeError):
             raise OpenAIError("OpenAI повернув пошкоджені дані зображення.") from None
         if not png.startswith(PNG_MAGIC):

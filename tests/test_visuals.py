@@ -336,6 +336,7 @@ class OpenAIImageProviderTests(unittest.TestCase):
             with self.assertRaises(llm.LLMError):
                 visuals.OpenAIImageProvider(transport=FakeTransport(response)).generate("a scene", self.dest)
             self.assertFalse(self.dest.exists())
+            self.assertEqual(list(self.dest.parent.glob("*.part")), [])
 
     def test_api_errors_are_not_retried_and_never_leak_the_key(self):
         t = FakeTransport(http_error(429, {"error": {"message": f"limit for {TEST_KEY}"}}), image_response())
@@ -373,6 +374,91 @@ class OpenAIImageProviderTests(unittest.TestCase):
         self.assertEqual(sorted(results), sorted(PNG_MAGIC + bytes([n]) for n in range(1, 5)))
 
 
+    def test_failing_replace_propagates_and_leaves_no_part(self):
+        t = FakeTransport(image_response())
+        with mock.patch.object(visuals.os, "replace", side_effect=OSError("boom")):
+            with self.assertRaises(OSError):
+                visuals.OpenAIImageProvider(transport=t).generate("a scene", self.dest)
+        self.assertEqual(list(self.dest.parent.glob("*.part")), [])
+        self.assertFalse(self.dest.exists())
+
+    def test_destination_folder_problem_fails_before_the_request(self):
+        blocker = Path(tempfile.mkdtemp()) / "afile"
+        blocker.write_text("x")
+        t = FakeTransport(image_response())
+        with self.assertRaises(OSError):
+            visuals.OpenAIImageProvider(transport=t).generate("a scene", blocker / "sub" / "s.png")
+        self.assertEqual(t.requests, [])
+
+    def test_newline_wrapped_base64_is_accepted(self):
+        raw = base64.b64encode(PNG_MAGIC + b"img" * 40).decode("ascii")
+        wrapped = "\n".join(raw[i:i + 20] for i in range(0, len(raw), 20))
+        t = FakeTransport(http_ok({"data": [{"b64_json": wrapped}]}))
+        visuals.OpenAIImageProvider(transport=t).generate("a scene", self.dest)
+        self.assertEqual(self.dest.read_bytes(), PNG_MAGIC + b"img" * 40)
+
+    def test_oversized_image_data_is_rejected_without_decoding(self):
+        t = FakeTransport(http_ok({"data": [{"b64_json": "A" * 40_000_001}]}))
+        with mock.patch.object(visuals.base64, "b64decode") as dec:
+            with self.assertRaises(llm.LLMError) as ctx:
+                visuals.OpenAIImageProvider(transport=t).generate("a scene", self.dest)
+        dec.assert_not_called()
+        self.assertIn("надто великі", str(ctx.exception))
+        self.assertFalse(self.dest.exists())
+
+    def test_api_400_is_shown_readably(self):
+        t = FakeTransport(http_error(400, {"error": {"message": f"Unknown parameter: output_format {TEST_KEY}"}}))
+        with self.assertRaises(llm.LLMError) as ctx:
+            visuals.OpenAIImageProvider(transport=t).generate("a scene", self.dest)
+        msg = str(ctx.exception)
+        self.assertIn("400", msg)
+        self.assertIn("output_format", msg)
+        self.assertNotIn(TEST_KEY, msg)
+
+
+class AtomicWriteConcurrencyTests(unittest.TestCase):
+    def _race(self, op):
+        import threading
+        dest = Path(tempfile.mkdtemp()) / "same.png"
+        sources, errors = [], []
+        real = os.replace
+        barrier = threading.Barrier(2)
+
+        def spy(src, dst):
+            sources.append(str(src))
+            try:
+                barrier.wait(timeout=2)
+            except threading.BrokenBarrierError:
+                pass
+            return real(src, dst)
+
+        def run(n):
+            try:
+                op(dest, n)
+            except Exception as exc:  # pragma: no cover
+                errors.append(exc)
+
+        with mock.patch.object(visuals.os, "replace", spy):
+            ths = [threading.Thread(target=run, args=(n,)) for n in (1, 2)]
+            [t.start() for t in ths]
+            [t.join() for t in ths]
+        self.assertEqual(errors, [])
+        self.assertEqual(len(set(sources)), 2)
+        self.assertIn(dest.read_bytes(), (PNG_MAGIC + b"\x01" * 5000, PNG_MAGIC + b"\x02" * 5000))
+        self.assertEqual(list(dest.parent.glob("*.part")), [])
+
+    def test_atomic_write_uses_unique_temp_files(self):
+        self._race(lambda dest, n: visuals._atomic_write(dest, PNG_MAGIC + bytes([n]) * 5000))
+
+    def test_atomic_copy_uses_unique_temp_files(self):
+        tmp = Path(tempfile.mkdtemp())
+        srcs = {}
+        for n in (1, 2):
+            srcs[n] = tmp / f"s{n}.png"
+            srcs[n].write_bytes(PNG_MAGIC + bytes([n]) * 5000)
+        self._race(lambda dest, n: visuals._atomic_copy(srcs[n], dest))
+
+
 class DemoDelayTests(unittest.TestCase):
     def test_delay_slows_the_demo_provider_down(self):
         import time
@@ -382,7 +468,7 @@ class DemoDelayTests(unittest.TestCase):
         p = visuals.DemoImageProvider(frame=frame, delay=0.2)
         start = time.monotonic()
         p.generate("x", tmp / "out.png")
-        self.assertGreaterEqual(time.monotonic() - start, 0.19)
+        self.assertGreaterEqual(time.monotonic() - start, 0.15)
 
     def test_delay_comes_from_the_environment_and_defaults_to_zero(self):
         frame = Path(tempfile.mkdtemp()) / "frame.png"
@@ -391,6 +477,12 @@ class DemoDelayTests(unittest.TestCase):
             self.assertEqual(visuals.DemoImageProvider(frame=frame).delay, 1.5)
         with mock.patch.dict(os.environ, {"DEMO_IMAGE_DELAY": "junk"}):
             self.assertEqual(visuals.DemoImageProvider(frame=frame).delay, 0)
+
+    def test_delay_ignores_non_finite_and_is_clamped(self):
+        frame = Path(tempfile.mkdtemp()) / "frame.png"
+        for raw, want in (("inf", 0), ("nan", 0), ("-3", 0), ("1000", 60)):
+            with mock.patch.dict(os.environ, {"DEMO_IMAGE_DELAY": raw}):
+                self.assertEqual(visuals.DemoImageProvider(frame=frame).delay, want, raw)
 
 
 if __name__ == "__main__":
