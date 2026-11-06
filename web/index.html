@@ -182,10 +182,15 @@ function renderOriginal(box, rec, withFrames = false) {
   if (withFrames && rec.shot_list.length) {
     const all = h("button", {className: "go", textContent: "Усі кадри"});
     all.onclick = async () => {
-      for (let i = 0; i < rec.shot_list.length; i++) {
+      const todo = [];
+      rec.shot_list.forEach((_, i) => { if (!slots["shot-" + (i + 1)].querySelector("img")) todo.push(i); });
+      const n = todo.length;
+      if (n === 0) return;
+      if (!confirm(`Згенерувати ${n} кадрів (~${n} хв, ${n} запитів ліміту підписки)?`)) return;
+      for (const i of todo) {
         const key = "shot-" + (i + 1);
         if (!(await makeImage({kind: "shot", id: rec.id, index: i + 1}, slots[key], rec.id, key))) {
-          $("err").textContent = `Кадр ${i + 1} не вдалося створити.`;
+          $("err").textContent += ` (кадр ${i + 1}; решту зупинено)`;
           break;
         }
       }
@@ -256,7 +261,7 @@ function showCurrent() {
   renderReuseTypes();
   if (!rec) { $("orig-view").textContent = "Немає оригіналів з таким статусом. Створіть їх у вкладці 1."; return; }
   $("set-status").value = rec.status;
-  renderOriginal($("orig-view"), rec);
+  renderOriginal($("orig-view"), rec, true);
 }
 
 const REUSE_DEFAULT = ["DEMO", "PROOF", "ONSCREEN", "CTA"];
