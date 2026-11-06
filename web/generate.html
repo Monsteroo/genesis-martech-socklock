@@ -3,20 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'">
 <title>Генератор зображень</title>
 <style>
-:root{--bg:#fff;--fg:#1a1a1a;--mut:#667;--line:#e2e2e8;--acc:#4f46e5;--acc-fg:#fff;--card:#fafafc;--bad:#c62828;--sel:#4f46e5}
-@media (prefers-color-scheme:dark){:root{--bg:#14141a;--fg:#eee;--mut:#9aa;--line:#2b2b36;--acc:#8b87ff;--acc-fg:#101014;--card:#1b1b24;--bad:#ff8a80;--sel:#8b87ff}}
+:root{--bg:#fff;--fg:#1a1a1a;--mut:#667;--line:#e2e2e8;--edge:#8a8a99;--acc:#4f46e5;--acc-fg:#fff;--card:#fafafc;--bad:#c62828;--sel:#4f46e5;--backing:rgba(255,255,255,.85)}
+@media (prefers-color-scheme:dark){:root{--bg:#14141a;--fg:#eee;--mut:#9aa;--line:#2b2b36;--edge:#6d6d80;--acc:#8b87ff;--acc-fg:#101014;--card:#1b1b24;--bad:#ff8a80;--sel:#8b87ff;--backing:rgba(20,20,26,.8)}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,sans-serif}
-main{max-width:1100px;margin:0 auto;padding:16px 16px 96px}
+main{max-width:1100px;margin:0 auto;padding:16px 16px calc(120px + env(safe-area-inset-bottom))}
 header{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:12px}
 h1{font-size:22px;margin:0}
 a{color:var(--acc)}
 #banner{background:#fff3cd;color:#5c4400;border:1px solid #ecd38a;border-radius:10px;padding:12px 14px;margin:0 0 12px}
+#banner p{margin:0 0 6px}
+#banner details{font-size:14px}
 @media (prefers-color-scheme:dark){#banner{background:#3a3120;color:#f2dc9d;border-color:#6b5a2a}}
 textarea{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);resize:vertical;min-height:84px}
-textarea:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+textarea:focus,button:focus-visible,.pickbox:focus-within{outline:2px solid var(--acc);outline-offset:2px}
 .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0}
 .lbl{color:var(--mut);min-width:64px;font-size:14px}
 .seg{display:flex;flex-wrap:wrap;gap:6px}
@@ -25,22 +28,30 @@ textarea:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:
 #go{background:var(--acc);color:var(--acc-fg);border:0;border-radius:12px;padding:12px 28px;font:inherit;font-weight:600;font-size:17px;cursor:pointer}
 #go:disabled{opacity:.5;cursor:not-allowed}
 .mut{color:var(--mut);font-size:14px}
-#examples a{margin-right:12px;cursor:pointer}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-top:18px}
-.tile{position:relative;border:1px solid var(--line);border-radius:14px;background:var(--card);padding:8px;display:flex;flex-direction:column;gap:6px}
+.small{font-size:13px}
+#examples button{background:none;border:0;color:var(--acc);text-decoration:underline;font:inherit;font-size:14px;padding:2px 4px;margin-right:6px;cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;margin-top:18px}
+@media (min-width:600px){.grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}}
+.tile{position:relative;border:1px solid var(--line);border-radius:14px;background:var(--card);padding:8px;display:flex;flex-direction:column;gap:8px}
 .tile.sel{border-color:var(--sel);box-shadow:0 0 0 2px var(--sel)}
-.tile .body{min-height:140px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
-.thumb{width:100%;display:block;border-radius:10px;cursor:zoom-in}
-.pick{position:absolute;top:14px;left:14px;width:20px;height:20px;accent-color:var(--sel);z-index:1}
-.cap{font-size:13px;color:var(--mut);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tile .body{min-height:140px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center}
+.tile .body.msg{padding-top:40px}
+.imgbtn{border:0;padding:0;background:none;width:100%;display:block;cursor:zoom-in}
+.thumb{width:100%;display:block;border-radius:10px}
+.pickbox{position:absolute;top:12px;left:12px;z-index:1;display:flex;padding:8px;border-radius:10px;background:var(--backing);cursor:pointer}
+.pick{width:22px;height:22px;margin:0;accent-color:var(--sel);cursor:pointer}
 .acts{display:flex;flex-wrap:wrap;gap:6px}
-.acts button{border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:8px;padding:5px 10px;font:inherit;font-size:13px;cursor:pointer}
-.bad{color:var(--bad);font-size:14px;text-align:center}
+.acts button,.fixes button{border:1px solid var(--edge);background:transparent;color:var(--fg);border-radius:8px;padding:5px 10px;font:inherit;font-size:13px;cursor:pointer}
+.fixes{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.bad{color:var(--bad);font-size:14px}
 .spin{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:s 1s linear infinite}
 @keyframes s{to{transform:rotate(360deg)}}
-.bar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 16px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;z-index:5}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+#more{display:block;margin:18px auto 0;border:1px solid var(--edge);background:var(--card);color:var(--fg);border-radius:10px;padding:8px 20px;font:inherit;cursor:pointer}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom));display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;z-index:5}
 .bar button{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:10px;padding:8px 16px;font:inherit;cursor:pointer}
 .bar button.main{background:var(--acc);color:var(--acc-fg);border-color:var(--acc)}
+#barmsg{color:var(--bad);font-size:14px;flex-basis:100%;text-align:center}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -52,19 +63,23 @@ textarea:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:
   </header>
   <div id="banner" hidden></div>
 
-  <textarea id="prompt" placeholder="Опишіть, що потрібно. Наприклад: смугасті шкарпетки на дерев'яній підлозі, м'яке світло"></textarea>
+  <textarea id="prompt" aria-label="Опис зображення" placeholder="Опишіть, що потрібно. Наприклад: смугасті шкарпетки на дерев'яній підлозі, м'яке світло"></textarea>
   <div id="examples" class="mut">Приклади:
-    <a data-t="Смугасті шкарпетки на дерев'яній підлозі, м'яке світло">шкарпетки на підлозі</a>
-    <a data-t="Дівчина в кафе тримає чашку кави, природне світло з вікна">кава в кафе</a>
-    <a data-t="Яскравий пакет еко-кави на білому тлі">пакет кави</a>
+    <button type="button" data-t="Смугасті шкарпетки на дерев'яній підлозі, м'яке світло">шкарпетки на підлозі</button>
+    <button type="button" data-t="Дівчина в кафе тримає чашку кави, природне світло з вікна">кава в кафе</button>
+    <button type="button" data-t="Яскравий пакет еко-кави на білому тлі">пакет кави</button>
   </div>
-  <div class="row"><span class="lbl">Скільки</span><div class="seg" id="count"></div></div>
-  <div class="row"><span class="lbl">Формат</span><div class="seg" id="format"></div></div>
-  <div class="row"><span class="lbl">Стиль</span><div class="seg" id="style"></div></div>
-  <div class="row"><button id="go" type="button">Згенерувати</button><span id="hint" class="mut"></span></div>
+  <div class="row"><span class="lbl">Скільки</span><div class="seg" id="count" role="group" aria-label="Скільки зображень"></div></div>
+  <div class="row"><span class="lbl">Формат</span><div class="seg" id="format" role="group" aria-label="Формат"></div></div>
+  <div class="row"><span class="lbl">Стиль</span><div class="seg" id="style" role="group" aria-label="Стиль"></div></div>
+  <div class="row"><button id="go" type="button">Згенерувати</button><span id="hint" class="mut" aria-live="polite"></span></div>
+  <div class="mut small">Ctrl+Enter — швидкий запуск</div>
+  <div id="msg" class="mut" role="status" aria-live="polite"></div>
+  <div id="note" class="mut" role="status" aria-live="polite"></div>
 
   <div id="empty" class="mut" hidden>Тут з'являться ваші зображення. Опишіть ідею й натисніть «Згенерувати».</div>
   <section id="grid" class="grid"></section>
+  <button id="more" type="button" hidden>Показати ще</button>
 </main>
 
 <div id="bar" class="bar" hidden>
@@ -72,38 +87,67 @@ textarea:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:
   <button id="dl" class="main" type="button">Завантажити</button>
   <button id="del" type="button">Видалити</button>
   <button id="clear" type="button">Зняти вибір</button>
+  <div id="barmsg" role="status" aria-live="polite"></div>
 </div>
 
 <script>
 const TOKEN = "__TOKEN__";
+const TIMEOUT = { api: 60000, gen: 180000, blob: 60000 };
+const SLOW = "Сервер довго не відповідає. Спробуйте ще раз.";
+const STALE = "Сторінка застаріла. Оновіть її (F5).";
+const PAGE = 24;
+
 const $ = (id) => document.getElementById(id);
 const h = (tag, props, ...kids) => {
   const el = Object.assign(document.createElement(tag), props || {});
   el.append(...kids);
   return el;
 };
+const reducedMotion = () => matchMedia("(prefers-reduced-motion:reduce)").matches;
 
-async function apiQuiet(path, payload) {
+/* ---------- network ---------- */
+async function withTimeout(ms, run) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try { return await run(ctl.signal); } finally { clearTimeout(timer); }
+}
+
+// POST when payload is given, otherwise GET. Never throws.
+async function apiQuiet(path, payload, ms = TIMEOUT.api) {
   try {
-    const opts = { headers: { "X-Token": TOKEN } };
-    if (payload !== undefined) {
-      opts.method = "POST";
-      opts.headers["Content-Type"] = "application/json";
-      opts.body = JSON.stringify(payload);
-    }
-    const res = await fetch(path, opts);
-    const body = await res.json().catch(() => ({}));
-    if (res.ok && body.ok !== false) return { ok: true, data: body.data };
-    return { ok: false, error: body.error || "Помилка сервера" };
+    return await withTimeout(ms, async (signal) => {
+      const opts = { signal, headers: { "X-Token": TOKEN } };
+      if (payload !== undefined) {
+        opts.method = "POST";
+        opts.headers["Content-Type"] = "application/json";
+        opts.body = JSON.stringify(payload);
+      }
+      const res = await fetch(path, opts);
+      if (res.status === 401 || res.status === 403) return { ok: false, error: STALE, stale: true };
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body.ok !== false) return { ok: true, data: body.data };
+      if (typeof body.error === "string" && body.error) return { ok: false, error: body.error, server: true };
+      return { ok: false, error: "Помилка сервера. Спробуйте ще раз." };
+    });
   } catch (e) {
-    return { ok: false, error: "Немає зв'язку з програмою" };
+    return { ok: false, error: e.name === "AbortError" ? SLOW : "Немає зв'язку з програмою." };
   }
 }
 
-async function getBlob(url) {
-  const res = await fetch(url, { headers: { "X-Token": TOKEN } });
-  if (!res.ok) throw new Error("HTTP " + res.status);
-  return res.blob();
+async function getBlob(url, type = "image/") {
+  const blob = await withTimeout(TIMEOUT.blob, async (signal) => {
+    const res = await fetch(url, { signal, headers: { "X-Token": TOKEN } });
+    if (!res.ok) throw Object.assign(new Error("HTTP " + res.status), { status: res.status });
+    return res.blob();
+  });
+  if (!blob.type.startsWith(type)) throw new Error("Unexpected content type");
+  return blob;
+}
+
+function explain(e, fallback) {
+  if (e && e.name === "AbortError") return SLOW;
+  if (e && (e.status === 401 || e.status === 403)) return STALE;
+  return fallback;
 }
 
 function save(blob, filename) {
@@ -115,32 +159,32 @@ function save(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-async function runPool(tasks, limit) {
-  let next = 0, failures = 0;
-  async function worker() {
-    while (next < tasks.length) {
-      const task = tasks[next++];
-      try { await task(); } catch (e) { failures++; }
-    }
+/* ---------- one global queue: never more than CONFIG.workers at once ---------- */
+let CONFIG = { workers: 4, price_usd: null };
+const queue = [];
+let active = 0;
+const limit = () => Math.max(1, Math.min(8, Number(CONFIG.workers) || 4));
+
+function enqueue(task) {
+  queue.push(task);
+  pump();
+}
+function pump() {
+  while (active < limit() && queue.length) {
+    const task = queue.shift();
+    active++;
+    task().catch(() => {}).finally(() => { active--; pump(); });
   }
-  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
-  return failures;
 }
 
 /* ---------- options ---------- */
 const state = { count: 4, format: "vertical", style: "" };
-let CONFIG = { workers: 4, price_usd: null };
 
 function segmented(id, key, options, onChange) {
-  const box = $(id);
   const buttons = options.map(([value, label]) => {
     const b = h("button", { type: "button" }, label);
-    b.addEventListener("click", () => {
-      state[key] = value;
-      refresh();
-      if (onChange) onChange();
-    });
-    box.append(b);
+    b.addEventListener("click", () => { state[key] = value; refresh(); if (onChange) onChange(); });
+    $(id).append(b);
     return [value, b];
   });
   function refresh() {
@@ -149,88 +193,124 @@ function segmented(id, key, options, onChange) {
   refresh();
 }
 
-function updateHint() {
+function updateLabels() {
+  $("go").textContent = "Згенерувати " + state.count;
   $("hint").textContent = CONFIG.price_usd
     ? "≈ $" + (CONFIG.price_usd * state.count).toFixed(2)
-    : "Кожне зображення оплачується з вашого ключа OpenAI.";
+    : "Ціна залежить від вашого тарифу OpenAI.";
 }
 
-segmented("count", "count", [[1, "1"], [2, "2"], [4, "4"], [6, "6"]], updateHint);
+segmented("count", "count", [[1, "1"], [2, "2"], [4, "4"], [6, "6"]], updateLabels);
 segmented("format", "format", [["vertical", "Вертикальне"], ["square", "Квадрат"], ["wide", "Горизонтальне"]]);
 segmented("style", "style", [["", "Без стилю"], ["product", "Фото продукту"], ["lifestyle", "Життя"],
   ["illustration", "Ілюстрація"], ["minimal", "Мінімалізм"]]);
 
-for (const a of document.querySelectorAll("#examples a")) {
-  a.addEventListener("click", () => {
-    $("prompt").value = a.dataset.t;
-    $("prompt").focus();
-  });
+for (const b of document.querySelectorAll("#examples button")) {
+  b.addEventListener("click", () => { $("prompt").value = b.dataset.t; $("prompt").focus(); });
 }
 
 /* ---------- tiles ---------- */
 const tiles = new Set();
+let galleryReady = false;
 
 function updateChrome() {
-  const picked = [...tiles].filter((t) => t.picked());
-  $("bar").hidden = picked.length === 0;
-  $("n").textContent = picked.length;
-  $("empty").hidden = tiles.size > 0;
+  const n = [...tiles].filter((t) => t.picked()).length;
+  $("bar").hidden = n === 0;
+  $("n").textContent = n;
+  $("empty").hidden = tiles.size > 0 || !galleryReady;
 }
 
-function makeTile(promptText) {
+// opts: { payload } to generate, or { meta } for an image that already exists.
+function makeTile(opts) {
   const body = h("div", { className: "body" });
-  const cap = h("div", { className: "cap", textContent: promptText || "", title: promptText || "" });
-  const el = h("div", { className: "tile" }, body, cap);
-  const tile = { el, id: null, blob: null, url: null, timer: null, prompt: promptText, picked: () => false };
+  const el = h("div", { className: "tile" }, body);
+  const tile = { el, meta: opts.meta || null, blob: null, url: null, timer: null, dead: false,
+    pickEl: null, picked: () => false };
 
-  function stopTimer() { clearInterval(tile.timer); tile.timer = null; }
+  const stopTimer = () => { clearInterval(tile.timer); tile.timer = null; };
+  const spinner = (text) => { body.className = "body"; body.replaceChildren(h("div", { className: "spin" }), h("div", { className: "mut" }, text)); };
 
-  tile.waiting = (counting = true) => {
+  tile.queued = () => { stopTimer(); spinner(tile.meta ? "Завантажую…" : "У черзі…"); };
+
+  tile.running = () => {
     stopTimer();
-    body.replaceChildren(h("div", { className: "spin" }));
-    if (!counting) return;
-    const label = h("div", { className: "mut" });
-    let sec = 0;
-    const tick = () => { label.textContent = "Генерую… " + sec++ + " с"; };
-    tick();
-    tile.timer = setInterval(tick, 1000);
-    body.append(label);
+    if (tile.meta) return spinner("Завантажую…");
+    spinner("Генерую… 0 с");
+    const label = body.lastChild;
+    const started = Date.now();
+    tile.timer = setInterval(() => {
+      label.textContent = "Генерую… " + Math.floor((Date.now() - started) / 1000) + " с";
+    }, 1000);
   };
 
-  tile.fail = (message, retry) => {
+  tile.fail = (message) => {
     stopTimer();
     const again = h("button", { type: "button" }, "Спробувати ще");
-    again.addEventListener("click", retry);
-    body.replaceChildren(h("div", { className: "bad" }, "Не вийшло: " + message), again);
+    again.addEventListener("click", tile.submit);
+    const drop = h("button", { type: "button" }, "Прибрати");
+    drop.addEventListener("click", () => { tile.remove(); updateChrome(); });
+    body.className = "body msg";
+    body.replaceChildren(h("div", { className: "bad" }, message), h("div", { className: "fixes" }, again, drop));
   };
 
-  tile.done = async (meta) => {
-    stopTimer();
-    tile.id = meta.id;
-    tile.prompt = meta.prompt || promptText;
-    cap.textContent = cap.title = tile.prompt || "";
-    tile.blob = await getBlob("/api/g/" + meta.id + ".png");
-    tile.url = URL.createObjectURL(tile.blob);
-    const img = h("img", { className: "thumb", src: tile.url, alt: tile.prompt || "Зображення" });
-    img.addEventListener("click", () => window.open(tile.url, "_blank"));
-    body.replaceChildren(img);
-
-    const pick = h("input", { type: "checkbox", className: "pick", title: "Вибрати" });
-    pick.addEventListener("change", () => {
-      el.classList.toggle("sel", pick.checked);
-      updateChrome();
-    });
-    tile.picked = () => pick.checked;
-    const more = h("button", { type: "button" }, "Ще схожі");
-    more.addEventListener("click", () => generate(
-      [0, 1, 2, 3].map((variation) => ({ parent: meta.id, variation })), tile.prompt));
-    const dl = h("button", { type: "button" }, "Завантажити");
-    dl.addEventListener("click", () => save(tile.blob, meta.id + ".png"));
-    el.prepend(pick);
-    el.append(h("div", { className: "acts" }, more, dl));
+  tile.addPick = () => {
+    if (tile.pickEl) return;
+    const box = h("input", { type: "checkbox", className: "pick" });
+    box.setAttribute("aria-label", "Вибрати зображення");
+    box.addEventListener("change", () => { el.classList.toggle("sel", box.checked); updateChrome(); });
+    tile.pickEl = box;
+    tile.picked = () => box.checked;
+    el.prepend(h("label", { className: "pickbox" }, box));
   };
+
+  tile.show = async () => {
+    const meta = tile.meta;
+    tile.addPick();
+    const blob = await getBlob("/api/g/" + meta.id + ".png");
+    if (tile.dead) return;
+    tile.blob = blob;
+    tile.url = URL.createObjectURL(blob);
+    const text = meta.prompt || "Зображення";
+    const img = h("img", { className: "thumb", src: tile.url, alt: text, title: text });
+    const open = h("button", { type: "button", className: "imgbtn", title: text }, img);
+    open.setAttribute("aria-label", "Відкрити зображення: " + text);
+    open.addEventListener("click", () => window.open(tile.url, "_blank", "noopener"));
+    body.className = "body";
+    body.replaceChildren(open);
+    if (!el.querySelector(".acts")) {
+      const more = h("button", { type: "button" }, "Ще 4 схожі");
+      more.addEventListener("click", () => {
+        more.disabled = true;
+        setTimeout(() => { more.disabled = false; }, 1500);
+        generate([0, 1, 2, 3].map((variation) => ({ parent: meta.id, variation })));
+      });
+      const dl = h("button", { type: "button" }, "Завантажити");
+      dl.addEventListener("click", () => save(tile.blob, meta.id + ".png"));
+      el.append(h("div", { className: "acts" }, more, dl));
+    }
+  };
+
+  // Runs inside the global queue. A paid generation is never repeated once we hold its meta.
+  tile.process = async () => {
+    if (tile.dead) return;
+    tile.running();
+    if (!tile.meta) {
+      const res = await apiQuiet("/api/gen", opts.payload, TIMEOUT.gen);
+      if (!res.ok) return tile.fail(res.server ? "Не вийшло: " + res.error : res.error);
+      tile.meta = res.data;
+    }
+    try {
+      await tile.show();
+    } catch (e) {
+      if (!tile.dead) tile.fail(explain(e, "Не вдалося завантажити зображення."));
+    }
+    updateChrome();
+  };
+
+  tile.submit = () => { tile.queued(); enqueue(tile.process); };
 
   tile.remove = () => {
+    tile.dead = true;
     stopTimer();
     if (tile.url) URL.revokeObjectURL(tile.url);
     el.remove();
@@ -239,106 +319,111 @@ function makeTile(promptText) {
   return tile;
 }
 
-async function generate(payloads, captionText) {
-  const fresh = payloads.map(() => makeTile(captionText));
+function generate(payloads) {
+  const fresh = payloads.map((payload) => makeTile({ payload }));
   const frag = document.createDocumentFragment();
-  for (const t of fresh) { tiles.add(t); frag.append(t.el); t.waiting(); }
+  for (const t of fresh) { tiles.add(t); frag.append(t.el); }
   $("grid").prepend(frag);
   updateChrome();
-
-  const tasks = payloads.map((payload, i) => async () => {
-    const t = fresh[i];
-    const run = async (again) => {
-      if (again) t.waiting();
-      const res = await apiQuiet("/api/gen", payload);
-      if (!res.ok) return t.fail(res.error, () => run(true));
-      try {
-        await t.done(res.data);
-        updateChrome();
-      } catch (e) {
-        t.fail("не вдалося завантажити зображення", () => run(true));
-      }
-    };
-    await run(false);
-  });
-  await runPool(tasks, CONFIG.workers);
+  fresh.forEach((t) => t.submit());
+  if (!reducedMotion()) fresh[0].el.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
 function generateFromForm() {
+  if ($("go").disabled) return;
   const text = $("prompt").value.trim();
+  $("msg").textContent = "";
   if (!text) {
-    $("hint").textContent = "Опишіть, що потрібно.";
+    $("msg").textContent = "Опишіть, що потрібно.";
     $("prompt").focus();
     return;
   }
-  updateHint();
-  generate(Array.from({ length: state.count }, () => ({ prompt: text, format: state.format, style: state.style })), text);
+  $("go").disabled = true;
+  setTimeout(() => { if (!keyMissing) $("go").disabled = false; }, 1500);
+  generate(Array.from({ length: state.count }, () => ({ prompt: text, format: state.format, style: state.style })));
 }
+let keyMissing = false;
 
 $("go").addEventListener("click", generateFromForm);
 $("prompt").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); generateFromForm(); }
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    if (!e.repeat) generateFromForm();
+  }
 });
 
 /* ---------- selection bar ---------- */
 const picked = () => [...tiles].filter((t) => t.picked());
+const barNote = (text) => { $("barmsg").textContent = text || ""; };
 
 $("clear").addEventListener("click", () => {
-  for (const t of picked()) {
-    const box = t.el.querySelector(".pick");
-    box.checked = false;
-    t.el.classList.remove("sel");
-  }
+  barNote();
+  for (const t of picked()) { t.pickEl.checked = false; t.el.classList.remove("sel"); }
   updateChrome();
 });
 
 $("dl").addEventListener("click", async () => {
+  barNote();
   const chosen = picked();
-  if (chosen.length === 1) return save(chosen[0].blob, chosen[0].id + ".png");
   try {
-    const ids = chosen.map((t) => t.id).join(",");
-    save(await getBlob("/api/gallery/zip?ids=" + ids), "images.zip");
+    if (chosen.length === 1) {
+      const t = chosen[0];
+      save(t.blob || await getBlob("/api/g/" + t.meta.id + ".png"), t.meta.id + ".png");
+    } else {
+      const ids = chosen.map((t) => encodeURIComponent(t.meta.id)).join(",");
+      save(await getBlob("/api/gallery/zip?ids=" + ids, "application/zip"), "images.zip");
+    }
   } catch (e) {
-    $("hint").textContent = "Не вдалося створити архів. Спробуйте ще раз.";
+    barNote(explain(e, "Не вдалося завантажити. Спробуйте ще раз."));
   }
 });
 
 $("del").addEventListener("click", async () => {
+  barNote();
   const chosen = picked();
-  const n = chosen.length;
-  const word = n % 10 >= 1 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "зображення" : "зображень";
-  if (!confirm("Видалити " + n + " " + word + " назавжди?")) return;
-  const res = await apiQuiet("/api/gallery/delete", { ids: chosen.map((t) => t.id) });
-  if (!res.ok) { $("hint").textContent = "Не вдалося видалити: " + res.error; return; }
+  if (!confirm("Видалити вибране (" + chosen.length + ") назавжди?")) return;
+  const res = await apiQuiet("/api/gallery/delete", { ids: chosen.map((t) => t.meta.id) });
+  if (!res.ok) return barNote(res.error);
   chosen.forEach((t) => t.remove());
   updateChrome();
 });
 
 /* ---------- start ---------- */
+let rest = [];
+
+function showMore() {
+  const batch = rest.splice(0, PAGE).map((meta) => makeTile({ meta }));
+  for (const t of batch) { tiles.add(t); $("grid").append(t.el); }
+  $("more").hidden = rest.length === 0;
+  updateChrome();
+  batch.forEach((t) => t.submit());
+}
+$("more").addEventListener("click", showMore);
+
 async function start() {
   const [config, visuals, gallery] = await Promise.all([
     apiQuiet("/api/config"), apiQuiet("/api/visuals"), apiQuiet("/api/gallery")]);
-  if (config.ok) CONFIG = Object.assign(CONFIG, config.data);
-  updateHint();
+  if (config.ok && config.data && typeof config.data === "object") CONFIG = Object.assign(CONFIG, config.data);
+  updateLabels();
 
-  if (visuals.ok && !visuals.data.available) {
+  if (visuals.ok && visuals.data && visuals.data.available === false) {
+    const reason = typeof visuals.data.reason === "string" ? visuals.data.reason : "";
     $("banner").append(
-      "Щоб почати, додайте ключ OpenAI. Відкрийте файл .env у папці програми, вставте рядок OPENAI_API_KEY=ваш_ключ і перезапустіть програму.",
-      h("div", { className: "mut", textContent: visuals.data.reason || "" }));
+      h("p", {}, "Щоб почати, додайте ключ OpenAI. Відкрийте файл .env у папці програми, вставте рядок OPENAI_API_KEY=ваш_ключ і перезапустіть програму."),
+      h("p", {}, "Не знаєте, як? Покажіть це повідомлення тому, хто налаштовував програму."),
+      h("details", {}, h("summary", {}, "Деталі"), reason));
     $("banner").hidden = false;
     $("go").disabled = true;
+    keyMissing = true;
   }
 
-  const items = gallery.ok ? gallery.data.items || [] : [];
-  const loaded = items.map((meta) => {
-    const t = makeTile(meta.prompt);
-    tiles.add(t);
-    $("grid").append(t.el);
-    t.waiting(false);
-    return () => t.done(meta).catch((e) => t.fail("не вдалося завантажити зображення", () => location.reload()));
-  });
-  updateChrome();
-  await runPool(loaded, CONFIG.workers);
+  if (gallery.ok && gallery.data && Array.isArray(gallery.data.items)) {
+    galleryReady = true;
+    rest = gallery.data.items.slice();
+    showMore();
+  } else {
+    $("note").textContent = gallery.stale ? STALE : "Не вдалося завантажити галерею. Оновіть сторінку.";
+  }
   updateChrome();
 }
 start();
