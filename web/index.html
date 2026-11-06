@@ -25,6 +25,8 @@ button.go:disabled{opacity:.5;cursor:wait}
 label.inline{display:inline-block;margin-right:12px}
 pre{white-space:pre-wrap;margin:4px 0;font:inherit}
 h2{font-size:17px;margin:20px 0 6px}
+.thumb{max-width:240px;border-radius:8px;border:1px solid var(--line);display:block;margin-top:6px}
+.shot{margin:8px 0}
 </style>
 </head>
 <body>
@@ -126,12 +128,59 @@ function radioList(box, items, name, label, onPick) {
   });
 }
 
-function renderOriginal(box, rec) {
-  box.replaceChildren(h("div", {className: "card"},
+async function loadImage(slot, id, key) {
+  const res = await fetch(`/api/image/${id}/${key}.png`, {headers: {"X-Token": TOKEN}});
+  if (!res.ok) return false;
+  const blob = await res.blob();
+  slot.replaceChildren(h("img", {src: URL.createObjectURL(blob), alt: key, className: "thumb"}));
+  return true;
+}
+
+async function makeImage(payload, slot, id, key) {
+  slot.textContent = "Генерую зображення… (близько хвилини)";
+  const data = await api("/api/image", payload);
+  if (!data) { slot.textContent = ""; return false; }
+  return loadImage(slot, id, key);
+}
+
+async function showExisting(id, slots) {   // slots: {key: element}
+  const data = await api("/api/images?id=" + id);
+  if (!data) return;
+  for (const key of data.keys) if (slots[key]) await loadImage(slots[key], id, key);
+}
+
+function renderOriginal(box, rec, withFrames = false) {
+  const slots = {};
+  const shots = h("div", {});
+  rec.shot_list.forEach((s, i) => {
+    const key = "shot-" + (i + 1);
+    const row = h("div", {className: "shot"}, h("span", {textContent: `${i + 1}. ${s}`}));
+    if (withFrames) {
+      const slot = h("div", {});
+      slots[key] = slot;
+      const btn = h("button", {className: "go", textContent: "Кадр"});
+      btn.onclick = () => makeImage({kind: "shot", id: rec.id, index: i + 1}, slot, rec.id, key);
+      row.append(" ", btn, slot);
+    }
+    shots.append(row);
+  });
+  const card = h("div", {className: "card"},
     h("b", {textContent: `${rec.id} · ${rec.title} [${rec.status}]`}),
     h("pre", {textContent: rec.blocks.map((b) => `[${b.type}] ${b.text}`).join("\n")}),
     h("div", {className: "mut", textContent: "Shot list:"}),
-    h("pre", {textContent: rec.shot_list.map((s, i) => `${i + 1}. ${s}`).join("\n")})));
+    shots);
+  if (withFrames && rec.shot_list.length) {
+    const all = h("button", {className: "go", textContent: "Усі кадри"});
+    all.onclick = async () => {
+      for (let i = 0; i < rec.shot_list.length; i++) {
+        const key = "shot-" + (i + 1);
+        if (!(await makeImage({kind: "shot", id: rec.id, index: i + 1}, slots[key], rec.id, key))) break;
+      }
+    };
+    card.append(all);
+  }
+  box.replaceChildren(card);
+  if (withFrames) showExisting(rec.id, slots);
 }
 
 /* ---------- tab 1 ---------- */
@@ -164,11 +213,14 @@ $("btn-concepts").onclick = async () => {
 $("btn-build").onclick = async () => {
   if (!chosenPain || !chosenConcept) { $("err").textContent = "Оберіть біль і концепт."; return; }
   const rec = await api("/api/build", {pain: chosenPain, concept: chosenConcept, status: $("new-status").value});
-  if (rec) renderOriginal($("built"), rec);
+  if (rec) renderOriginal($("built"), rec, true);
 };
 
 api("/api/visuals").then((v) => {
-  if (v && !v.available) $("visuals").textContent = "Візуальні чернетки: недоступно. " + v.reason;
+  if (!v) return;
+  $("visuals").textContent = v.available
+    ? "Візуальні чернетки: доступно."
+    : "Візуальні чернетки: недоступно. " + v.reason;
 });
 
 /* ---------- tab 2 ---------- */
@@ -221,10 +273,19 @@ $("btn-variants").onclick = async () => {
   if (!rec) { $("err").textContent = "Оберіть оригінал."; return; }
   const data = await api("/api/variants", {id: rec.id, instruction: $("instruction").value, count: Number($("count").value)});
   if (!data) return;
-  $("variants").replaceChildren(...data.map((v, i) => h("div", {className: "card"},
-    h("b", {textContent: `${i + 1}. ${v.hook}`}),
-    h("div", {textContent: v.first_line}),
-    h("div", {className: "mut", textContent: "На екрані: " + v.onscreen}))));
+  const slots = {};
+  $("variants").replaceChildren(...data.map((v, i) => {
+    const slot = h("div", {});
+    slots[v.key] = slot;
+    const btn = h("button", {className: "go", textContent: "Ключовий візуал"});
+    btn.onclick = () => makeImage({kind: "variant", id: rec.id, variant: v}, slot, rec.id, v.key);
+    return h("div", {className: "card"},
+      h("b", {textContent: `${i + 1}. ${v.hook}`}),
+      h("div", {textContent: v.first_line}),
+      h("div", {className: "mut", textContent: "На екрані: " + v.onscreen}),
+      btn, slot);
+  }));
+  showExisting(rec.id, slots);
 };
 
 MARKETS.forEach((m) => {

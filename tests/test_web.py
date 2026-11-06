@@ -3,11 +3,11 @@ import json
 import threading
 import unittest
 
-from engine import visuals
+from engine.llm import LLMError
 from engine.service import Engine
 from engine.web import make_server
 from engine.web import MAX_BODY
-from tests.helpers import SAMPLE_BLOCKS, FakeLLM, make_root, segments_answer
+from tests.helpers import PNG_MAGIC, SAMPLE_BLOCKS, FakeImages, FakeLLM, make_root, segments_answer
 
 
 def variants_answer(n=5):
@@ -28,6 +28,22 @@ class BlockingLLM(FakeLLM):
         return super().run(prompt)
 
 
+def raw_request(port, method, path, body=None, headers=None, host=None):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn.putrequest(method, path, skip_host=True)
+    conn.putheader("Host", host or f"127.0.0.1:{port}")
+    for key, value in (headers or {}).items():
+        conn.putheader(key, value)
+    data = json.dumps(body).encode("utf-8") if body is not None else b""
+    conn.putheader("Content-Length", str(len(data)))
+    conn.endheaders(data)
+    resp = conn.getresponse()
+    payload = resp.read()
+    ctype = resp.getheader("Content-Type")
+    conn.close()
+    return resp.status, payload, ctype
+
+
 class WebTests(unittest.TestCase):
     def setUp(self):
         self.engine = Engine(make_root(), FakeLLM(variants_answer(5)))
@@ -41,18 +57,8 @@ class WebTests(unittest.TestCase):
         self.server.server_close()
 
     def request(self, method, path, body=None, headers=None, host=None):
-        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
-        conn.putrequest(method, path, skip_host=True)
-        conn.putheader("Host", host or f"127.0.0.1:{self.port}")
-        for key, value in (headers or {}).items():
-            conn.putheader(key, value)
-        data = json.dumps(body).encode("utf-8") if body is not None else b""
-        conn.putheader("Content-Length", str(len(data)))
-        conn.endheaders(data)
-        resp = conn.getresponse()
-        text = resp.read().decode("utf-8")
-        conn.close()
-        return resp.status, text
+        status, data, _ = raw_request(self.port, method, path, body, headers, host)
+        return status, data.decode("utf-8")
 
     def test_index_contains_the_token_and_two_tabs(self):
         status, html = self.request("GET", "/")
@@ -133,7 +139,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(status, 200)
         data = json.loads(text)["data"]
         self.assertFalse(data["available"])
-        self.assertEqual(data["reason"], visuals.available()[1])
+        self.assertTrue(data["reason"])
         status, _ = self.request("GET", "/api/visuals", host="evil.example")
         self.assertEqual(status, 403)
 
@@ -251,3 +257,87 @@ class WebTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ImageWebTests(unittest.TestCase):
+    def setUp(self):
+        self.images = FakeImages()
+        self.engine = Engine(make_root(), FakeLLM(), images=self.images)
+        self.engine.library.add("Socks", "lost", SAMPLE_BLOCKS, shot_list=["one", "two"])
+        self.server = make_server(self.engine, port=0)
+        self.port = self.server.server_port
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def request(self, method, path, body=None, headers=None, host=None):
+        status, data, _ = raw_request(self.port, method, path, body, headers, host)
+        return status, data.decode("utf-8")
+
+    def request_raw(self, method, path, headers=None, host=None):
+        return raw_request(self.port, method, path, None, headers, host)
+
+    def test_post_image_then_get_png_with_token(self):
+        status, text = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1},
+                                    {"X-Token": self.server.token})
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(text)["data"], {"id": "o001", "key": "shot-1", "cached": False})
+        status, body, ctype = self.request_raw("GET", "/api/image/o001/shot-1.png", headers={"X-Token": self.server.token})
+        self.assertEqual(status, 200)
+        self.assertEqual(ctype, "image/png")
+        self.assertTrue(body.startswith(PNG_MAGIC))
+
+    def test_png_without_or_with_wrong_token_is_forbidden(self):
+        self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1}, {"X-Token": self.server.token})
+        for headers in ({}, {"X-Token": "nope"}):
+            status, _, _ = self.request_raw("GET", "/api/image/o001/shot-1.png", headers=headers)
+            self.assertEqual(status, 403)
+
+    def test_missing_png_is_404_and_bad_path_is_not_served(self):
+        status, _, _ = self.request_raw("GET", "/api/image/o001/shot-2.png", headers={"X-Token": self.server.token})
+        self.assertEqual(status, 404)
+        status, _, _ = self.request_raw("GET", "/api/image/o001/..%2F..%2Fsecret.png", headers={"X-Token": self.server.token})
+        self.assertEqual(status, 404)
+
+    def test_png_with_foreign_host_is_forbidden(self):
+        status, _, _ = self.request_raw("GET", "/api/image/o001/shot-1.png", headers={"X-Token": self.server.token},
+                                        host="evil.example")
+        self.assertEqual(status, 403)
+
+    def test_images_listing(self):
+        status, text = self.request("GET", "/api/images?id=o001")
+        self.assertEqual(json.loads(text)["data"], {"keys": []})
+        self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 2}, {"X-Token": self.server.token})
+        status, text = self.request("GET", "/api/images?id=o001")
+        self.assertEqual(json.loads(text)["data"], {"keys": ["shot-2"]})
+        status, _ = self.request("GET", "/api/images?id=o404")
+        self.assertEqual(status, 400)
+
+    def test_variant_image_route(self):
+        v = {"hook": "Where do lost socks go?", "first_line": "Every wash.", "onscreen": "Lost sock mystery"}
+        status, text = self.request("POST", "/api/image", {"kind": "variant", "id": "o001", "variant": v},
+                                    {"X-Token": self.server.token})
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(text)["data"]["key"].startswith("variant-"))
+
+    def test_image_errors_are_400_with_a_message(self):
+        status, text = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 9},
+                                    {"X-Token": self.server.token})
+        self.assertEqual(status, 400)
+        self.assertIn("Немає кадру", json.loads(text)["error"])
+
+    def test_visuals_route_reflects_the_provider(self):
+        status, text = self.request("GET", "/api/visuals")
+        self.assertEqual(json.loads(text)["data"], {"available": True, "reason": ""})
+
+    def test_failing_provider_is_a_400_and_releases_the_lock(self):
+        self.images.fail = LLMError("boom")
+        headers = {"X-Token": self.server.token}
+        status, text = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1}, headers)
+        self.assertEqual(status, 400)
+        self.assertIn("boom", json.loads(text)["error"])
+        self.images.fail = None
+        status, _ = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1}, headers)
+        self.assertEqual(status, 200)

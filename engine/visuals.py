@@ -179,7 +179,3 @@ def get_provider(name, kind="image", **kw):
 
 register_provider("codex", "image", CodexImageProvider)
 register_provider("demo", "image", DemoImageProvider)
-
-
-def available():  # transitional: removed in Task 5, callers use engine.images.available()
-    return NoImages().available()

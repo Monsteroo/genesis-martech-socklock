@@ -1,16 +1,17 @@
 import json
+import re
 import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from engine import visuals
 from engine.library import LibraryError
 from engine.llm import LLMError
 
 PAGE = Path(__file__).resolve().parent.parent / "web" / "index.html"
 MAX_BODY = 100_000
+IMAGE_ROUTE = re.compile(r"/api/image/(o\d{3})/((?:shot-\d+|variant-[0-9a-f]{8}))\.png")
 
 ROUTES = {
     "/api/pains": lambda e, b: e.pains(b["text"]),
@@ -20,6 +21,7 @@ ROUTES = {
     "/api/variants": lambda e, b: e.variants(b["id"], b["instruction"], int(b.get("count", 5))),
     "/api/localize": lambda e, b: e.localize(b["id"], b["markets"]),
     "/api/compose": lambda e, b: e.compose(b["pain"], b["reuse"], b["new"]),
+    "/api/image": lambda e, b: e.image(b),
 }
 
 
@@ -46,6 +48,18 @@ def make_server(engine, port=8780):
             self.end_headers()
             self.wfile.write(data)
 
+        def _send_bytes(self, code, data, ctype):
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def _token_ok(self):
+            sent = self.headers.get("X-Token", "").encode("utf-8", "replace")
+            return secrets.compare_digest(sent, token.encode("utf-8"))
+
         def _json(self, code, payload):
             self._send(code, json.dumps(payload, ensure_ascii=False))
 
@@ -62,15 +76,31 @@ def make_server(engine, port=8780):
                 except LibraryError as exc:
                     return self._json(400, {"ok": False, "error": str(exc)})
             if url.path == "/api/visuals":
-                ok, reason = visuals.available()
+                ok, reason = engine.images.available()
                 return self._json(200, {"ok": True, "data": {"available": ok, "reason": reason}})
+            if url.path == "/api/images":
+                original_id = parse_qs(url.query).get("id", [""])[0]
+                try:
+                    return self._json(200, {"ok": True, "data": engine.list_images(original_id)})
+                except LibraryError as exc:
+                    return self._json(400, {"ok": False, "error": str(exc)})
+            match = IMAGE_ROUTE.fullmatch(url.path)
+            if match:
+                if not self._token_ok():
+                    return self._json(403, {"ok": False, "error": "Невірний токен"})
+                try:
+                    path = engine.image_store.path(match.group(1), match.group(2))
+                except LibraryError as exc:
+                    return self._json(400, {"ok": False, "error": str(exc)})
+                if not path.is_file():
+                    return self._json(404, {"ok": False, "error": "Зображення немає"})
+                return self._send_bytes(200, path.read_bytes(), "image/png")
             self._json(404, {"ok": False, "error": "Не знайдено"})
 
         def do_POST(self):
             if not self._host_ok():
                 return self._json(403, {"ok": False, "error": "Host не дозволено"})
-            sent = self.headers.get("X-Token", "").encode("utf-8", "replace")
-            if not secrets.compare_digest(sent, token.encode("utf-8")):
+            if not self._token_ok():
                 return self._json(403, {"ok": False, "error": "Невірний токен"})
             try:
                 length = int(self.headers.get("Content-Length") or 0)
