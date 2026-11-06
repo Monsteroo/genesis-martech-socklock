@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from engine import visuals
-from engine.library import LibraryError, render_script
+from engine.library import STATUSES, LibraryError, render_script
 from engine.llm import LLMError, get_backend
 from engine.localize import MARKETS
 from engine.service import Engine
@@ -86,7 +86,10 @@ def cmd_visuals(a, e):
 def cmd_web(a, e):
     from engine.web import make_server
 
-    server = make_server(e, a.port)
+    try:
+        server = make_server(e, a.port)
+    except OSError as exc:
+        raise LibraryError(f"Порт {a.port} зайнятий. Вкажіть інший: --port N.") from exc
     print(f"Відкрийте http://127.0.0.1:{server.server_port} (Ctrl-C щоб зупинити)")
     try:
         server.serve_forever()
@@ -113,7 +116,7 @@ def build_parser():
     s.set_defaults(func=cmd_concepts)
     s = orig.add_parser("build")
     s.add_argument("--concept", type=int, required=True)
-    s.add_argument("--status", default="draft")
+    s.add_argument("--status", default="draft", choices=STATUSES)
     s.set_defaults(func=cmd_build)
 
     lib = sub.add_parser("library", help="бібліотека оригіналів").add_subparsers(dest="sub", required=True)
@@ -146,7 +149,7 @@ def build_parser():
 
     sub.add_parser("visuals", help="чи доступні візуальні чернетки").set_defaults(func=cmd_visuals)
     s = sub.add_parser("web", help="локальна вебсторінка")
-    s.add_argument("--port", type=int, default=8765)
+    s.add_argument("--port", type=int, default=8780)
     s.set_defaults(func=cmd_web)
     return p
 
@@ -161,6 +164,9 @@ def main(argv=None, llm=None, root=None):
         backend = llm or get_backend(args.backend)
         args.func(args, Engine(root, backend))
         return 0
-    except (LLMError, LibraryError, FileNotFoundError) as exc:
+    except (LLMError, LibraryError, OSError, ValueError) as exc:
         print(f"Помилка: {exc}", file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        print("Перервано.", file=sys.stderr)
+        return 130

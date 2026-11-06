@@ -22,7 +22,7 @@ ROUTES = {
 }
 
 
-def make_server(engine, port=8765):
+def make_server(engine, port=8780):
     token = secrets.token_urlsafe(24)
     busy = threading.Lock()  # one model request at a time, like the Codex backend requires
     html = PAGE.read_text(encoding="utf-8").replace("__TOKEN__", token)

@@ -10,7 +10,7 @@
 
 Без підписки є демо-режим із записаними відповідями (лише аргументи за замовчуванням: `--count 5`, `--pain 1`, `--concept 1`, `--new HOOK --new PAIN`):
 
-    python3 -m engine --backend demo web          # вебсторінка: http://127.0.0.1:8765
+    python3 -m engine --backend demo web          # вебсторінка: http://127.0.0.1:8780
     python3 -m engine --backend demo originals pains samples/pains.txt
     python3 -m engine --backend demo originals concepts --pain 1
     python3 -m engine --backend demo originals build --concept 1

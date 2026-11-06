@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import socket
 import unittest
 
 from engine import cli
@@ -94,6 +95,51 @@ class CliTests(unittest.TestCase):
                            llm=FakeLLM(), root=self.root)
         self.assertEqual(code, 1)
         self.assertIn("TYPE=ID", err)
+
+    def test_corrupt_saved_pains_is_a_clean_error(self):
+        out_dir = self.root / "out"
+        out_dir.mkdir()
+        (out_dir / "pains.json").write_text("{not json", encoding="utf-8")
+        code, _, err = run(["originals", "concepts", "--pain", "1"], llm=FakeLLM(), root=self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("Помилка", err)
+
+    def test_non_utf8_input_file_is_a_clean_error(self):
+        bad = self.root / "bad.txt"
+        bad.write_bytes(b"\xff\xfe\x00bad")
+        code, _, err = run(["originals", "pains", str(bad)], llm=FakeLLM(), root=self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("Помилка", err)
+
+    def test_directory_as_input_file_is_a_clean_error(self):
+        code, _, err = run(["originals", "pains", str(self.root)], llm=FakeLLM(), root=self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("Помилка", err)
+
+    def test_keyboard_interrupt_returns_130(self):
+        class Interrupting:
+            def run(self, prompt):
+                raise KeyboardInterrupt
+
+        code, _, err = run(["ping"], llm=Interrupting(), root=self.root)
+        self.assertEqual(code, 130)
+        self.assertIn("Перервано.", err)
+
+    def test_web_port_in_use_is_a_readable_error(self):
+        with socket.socket() as busy:
+            busy.bind(("127.0.0.1", 0))
+            busy.listen(1)
+            port = busy.getsockname()[1]
+            code, _, err = run(["--backend", "demo", "web", "--port", str(port)], root=self.root)
+        self.assertEqual(code, 1)
+        self.assertIn(f"Порт {port} зайнятий. Вкажіть інший: --port N.", err)
+
+    def test_default_web_port_is_8780(self):
+        self.assertEqual(cli.build_parser().parse_args(["web"]).port, 8780)
+
+    def test_build_rejects_unknown_status_at_parse_time(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            cli.build_parser().parse_args(["originals", "build", "--concept", "1", "--status", "bogus"])
 
     def test_visuals_reports_unavailable_without_a_backend(self):
         code, out, _ = run(["visuals"], root=self.root)

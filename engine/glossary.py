@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 
@@ -22,9 +23,15 @@ def to_prompt(g):
     return "\n".join(lines)
 
 
+def _term_pattern(term):
+    """Whole-word match: a word edge is only enforced where the term itself starts/ends with a word char."""
+    before = r"(?<!\w)" if re.match(r"\w", term) else ""
+    after = r"(?!\w)" if re.search(r"\w$", term) else ""
+    return re.compile(before + re.escape(term) + after, re.IGNORECASE)
+
+
 def find_forbidden(text, g):
-    low = text.casefold()
-    return [w for w in g["forbidden"] if w.casefold() in low]
+    return [w for w in g["forbidden"] if _term_pattern(w).search(text)]
 
 
 def missing_protected(source, translated, g):

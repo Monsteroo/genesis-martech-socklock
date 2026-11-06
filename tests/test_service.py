@@ -89,6 +89,41 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(e.saved_concepts(), {"pain": PAIN, "concepts": concepts["concepts"]})
         self.assertTrue((self.root / "out" / "concepts.json").exists())
 
+    def test_compose_number_follows_highest_existing_file(self):
+        e = self.engine({"blocks": [{"type": "HOOK", "text": "New hook"}]})
+        self.add_original(e)
+        e.out_dir.mkdir(parents=True, exist_ok=True)
+        (e.out_dir / "compose_2.json").write_text("{}", encoding="utf-8")
+        e.compose("pain", {"CTA": "o001"}, ["HOOK"])
+        self.assertTrue((e.out_dir / "compose_3.json").exists())
+        self.assertEqual((e.out_dir / "compose_2.json").read_text(), "{}")
+
+    def test_compose_rejects_blank_pain_before_model_call(self):
+        e = self.engine()
+        self.add_original(e)
+        for pain in ("", "   ", None):
+            with self.assertRaises(LibraryError):
+                e.compose(pain, {"CTA": "o001"}, ["HOOK"])
+        self.assertEqual(e.llm.prompts, [])
+
+    def test_build_original_rejects_unknown_status_before_model_call(self):
+        e = self.engine()
+        with self.assertRaises(LibraryError):
+            e.build_original(PAIN, CONCEPT, "bogus")
+        self.assertEqual(e.llm.prompts, [])
+
+    def test_new_pains_delete_stale_concepts(self):
+        pains = {"pains": [{"pain": "Lost socks", "quotes": ["q"]}]}
+        concepts = {"concepts": [{"angle": "Mystery", "hook": "Hook"}]}
+        e = self.engine(pains, concepts, pains)
+        e.pains("I lose socks q")
+        e.concepts(PAIN, 1)
+        self.assertTrue((e.out_dir / "concepts.json").exists())
+        e.pains("I lose socks q")
+        self.assertFalse((e.out_dir / "concepts.json").exists())
+        with self.assertRaises(LibraryError):
+            e.saved_concepts()
+
     def test_saved_lists_missing(self):
         e = self.engine()
         with self.assertRaises(LibraryError) as c:

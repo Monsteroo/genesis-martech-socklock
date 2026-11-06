@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 from engine import compose as composer
@@ -6,7 +7,7 @@ from engine import glossary
 from engine import localize as localizer
 from engine import originals as origin
 from engine import variants as varier
-from engine.library import Library, LibraryError
+from engine.library import STATUSES, Library, LibraryError
 
 
 class Engine:
@@ -29,6 +30,7 @@ class Engine:
             raise LibraryError("Вставте текст з коментарями.")
         result = origin.find_pains(self.llm, text)
         self._save("pains.json", result)
+        (self.out_dir / "concepts.json").unlink(missing_ok=True)  # concepts of the old pains are stale
         return result
 
     def concepts(self, pain, count=5):
@@ -49,6 +51,8 @@ class Engine:
         return self._load_saved("concepts.json", "Спершу виконайте `originals concepts --pain N`.")
 
     def build_original(self, pain, concept, status="draft"):
+        if status not in STATUSES:
+            raise LibraryError(f"Невідомий статус: {status}. Доступні: {', '.join(STATUSES)}")
         script = origin.write_script(self.llm, pain, concept, self.glossary)
         return self.library.add(
             title=script["title"], pain=pain["pain"], blocks=script["blocks"],
@@ -78,7 +82,11 @@ class Engine:
         return results
 
     def compose(self, pain, reuse, new_types):
+        if not isinstance(pain, str) or not pain.strip():
+            raise LibraryError("Вкажіть біль для нових блоків.")
         result = composer.compose(self.llm, self.library, pain, reuse, new_types, self.glossary)
-        n = len(list(self.out_dir.glob("compose_*.json"))) + 1 if self.out_dir.exists() else 1
+        numbers = [int(m.group(1)) for f in self.out_dir.glob("compose_*.json")
+                   if (m := re.fullmatch(r"compose_(\d+)\.json", f.name))] if self.out_dir.exists() else []
+        n = max(numbers, default=0) + 1
         self._save(f"compose_{n}.json", result)
         return result
