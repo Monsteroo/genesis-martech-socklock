@@ -1,24 +1,177 @@
-"""Optional key-frame generation. Disabled in the MVP.
+"""Image generation providers.
 
-Checked on 2026-11-06: Gemini CLI 0.67.0 rejects "Sign in with Google" for individual accounts
-("migrate to Antigravity"); the remaining options are an API key or Vertex AI, which break the
-subscription-only rule. We report the limitation instead of pretending to generate anything."""
+A provider has `kind` ("image" or "video"), `name`, `available() -> (bool, reason)` and
+`generate(prompt, dest) -> Path`. Built in: codex (the user's ChatGPT subscription through the Codex CLI),
+demo (a bundled sample frame) and NoImages (nothing configured). Other providers, for example HeyGen for
+video, plug in through register_provider(). There is no automatic fallback between providers."""
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 
-REASON = (
-    "Gemini CLI: вхід через Google для особистих акаунтів більше не підтримується "
-    "(лишаються API-ключ або Vertex AI, що суперечить правилу «лише підписка»)."
+from engine.llm import LLMError, clean_env, codex_binary, require_login, subprocess_runner
+
+IMAGE_TIMEOUT = 300
+MAX_IMAGE_PROMPT = 4000
+IMAGE_SANDBOX = "read-only"
+DEMO_FRAME = Path(__file__).resolve().parent.parent / "samples" / "demo" / "frame.png"
+NO_TEXT = "No text, no logos, no watermarks. Vertical 9:16 composition."
+INSTRUCTION = (
+    "Generate ONE image with your built-in image generation tool. "
+    "Do not run any other commands. Reply only with the saved file path.\n\nImage description:\n"
 )
 
 
-class VisualsUnavailable(Exception):
+class VisualsUnavailable(LLMError):
     """Readable, user-facing failure."""
 
 
-def available():
-    return False, REASON
+def frame_prompt(shot, original, style):
+    return (
+        "Storyboard frame for a social ad of a magnetic-socks brand (SockLock). "
+        f"Scene: {shot}\nPain it addresses: {original['pain']}\nVisual style: {style}\n{NO_TEXT}"
+    )
 
 
-def storyboard_frames(shot_list):
-    ok, reason = available()
-    if not ok:
-        raise VisualsUnavailable(reason)
+def variant_prompt(variant, original, style):
+    return (
+        "Key visual for a social ad of a magnetic-socks brand (SockLock).\n"
+        f"Hook: {variant['hook']}\nOpening line: {variant['first_line']}\n"
+        f"On-screen idea (do NOT render this text in the image): {variant['onscreen']}\n"
+        f"Pain it addresses: {original['pain']}\nVisual style: {style}\n{NO_TEXT}"
+    )
+
+
+class NoImages:
+    kind = "image"
+    name = "none"
+
+    def available(self):
+        return False, "Провайдер зображень не налаштовано."
+
+    def generate(self, prompt, dest):
+        raise VisualsUnavailable(self.available()[1])
+
+
+class DemoImageProvider:
+    kind = "image"
+    name = "demo"
+
+    def __init__(self, frame=DEMO_FRAME):
+        self.frame = Path(frame)
+
+    def available(self):
+        if self.frame.is_file():
+            return True, ""
+        return False, f"Немає демо-зображення ({self.frame.name})."
+
+    def generate(self, prompt, dest):
+        ok, reason = self.available()
+        if not ok:
+            raise VisualsUnavailable(reason)
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(self.frame, dest)
+        return dest
+
+
+def _thread_id(stdout):
+    for line in (stdout or "").splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("type") == "thread.started" and event.get("thread_id"):
+            return str(event["thread_id"])
+    return None
+
+
+class CodexImageProvider:
+    kind = "image"
+    name = "codex"
+
+    def __init__(self, runner=subprocess_runner, binary=None, codex_home=None):
+        self.runner = runner
+        self.binary = binary or codex_binary()
+        self.codex_home = Path(codex_home or os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+
+    def available(self):
+        if not self.binary:
+            return False, "Codex CLI не знайдено (задайте CODEX_BIN)."
+        env = clean_env()
+        try:
+            require_login(self.runner, self.binary, env)
+        except LLMError as exc:
+            return False, str(exc)
+        try:
+            res = self.runner([self.binary, "features", "list"], env, 30, None)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            return False, f"Не вдалося перевірити функції Codex: {exc}"
+        text = (res.stdout or "") + (res.stderr or "")
+        if res.returncode == 0 and re.search(r"^image_generation\s+\S+\s+true\s*$", text, re.M):
+            return True, ""
+        return False, "У Codex вимкнена функція image_generation (перевірте `codex features list`)."
+
+    def generate(self, prompt, dest):
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise LLMError("Порожній опис зображення.")
+        if len(prompt) > MAX_IMAGE_PROMPT:
+            raise LLMError(f"Опис зображення задовгий ({len(prompt)} символів, ліміт {MAX_IMAGE_PROMPT}).")
+        env = clean_env()
+        require_login(self.runner, self.binary, env)
+        with tempfile.TemporaryDirectory() as tmp:
+            out_file = Path(tmp) / "answer.txt"
+            args = [
+                self.binary, "exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config",
+                "--sandbox", IMAGE_SANDBOX, "--json", "--cd", tmp, "-o", str(out_file), INSTRUCTION + prompt,
+            ]
+            try:
+                res = self.runner(args, env, IMAGE_TIMEOUT, tmp)
+            except subprocess.TimeoutExpired:
+                raise LLMError(
+                    f"Codex не створив зображення за {IMAGE_TIMEOUT} с. "
+                    "Автоматичного повтору немає: він витрачає ліміти підписки."
+                )
+            except OSError as exc:
+                raise LLMError(f"Не вдалося запустити Codex ({self.binary}): {exc}")
+            if res.returncode != 0:
+                tail = (res.stderr or res.stdout or "").strip()[-300:]
+                raise LLMError(f"Codex завершився з помилкою: {tail}")
+        thread_id = _thread_id(res.stdout)
+        if not thread_id or not re.fullmatch(r"[A-Za-z0-9-]+", thread_id):
+            raise LLMError("Codex не повідомив ідентифікатор сеансу, зображення не знайдено.")
+        folder = self.codex_home / "generated_images" / thread_id
+        found = sorted(folder.glob("*.png"), key=lambda p: p.stat().st_mtime) if folder.is_dir() else []
+        if not found:
+            raise LLMError(
+                "Codex не створив зображення (перевірте, що функція image_generation увімкнена: `codex features list`)."
+            )
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(found[-1], dest)
+        return dest
+
+
+_REGISTRY = {}
+
+
+def register_provider(name, kind, factory):
+    _REGISTRY[(kind, name)] = factory
+
+
+def get_provider(name, kind="image", **kw):
+    factory = _REGISTRY.get((kind, name))
+    if factory is None:
+        raise VisualsUnavailable(f"Немає провайдера {kind}/{name}.")
+    return factory(**kw)
+
+
+register_provider("codex", "image", CodexImageProvider)
+register_provider("demo", "image", DemoImageProvider)
+
+
+def available():  # transitional: removed in Task 5, callers use engine.images.available()
+    return NoImages().available()

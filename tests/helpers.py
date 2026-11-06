@@ -41,3 +41,30 @@ def make_root():
 
 def segments_answer(prefix=""):
     return {"segments": [{"id": f"s{i}", "text": prefix + b["text"]} for i, b in enumerate(SAMPLE_BLOCKS, 1)]}
+
+
+PNG_MAGIC = bytes([137, 80, 78, 71, 13, 10, 26, 10])
+
+
+class FakeImages:
+    """Replaces only the image provider. Records prompts and writes a tiny PNG-looking file."""
+
+    kind = "image"
+    name = "fake"
+
+    def __init__(self, available=(True, ""), fail=None):
+        self._available = available
+        self.fail = fail
+        self.prompts = []
+
+    def available(self):
+        return self._available
+
+    def generate(self, prompt, dest):
+        self.prompts.append(prompt)
+        if self.fail:
+            raise self.fail
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(PNG_MAGIC + b"fake")
+        return dest

@@ -133,7 +133,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(status, 200)
         data = json.loads(text)["data"]
         self.assertFalse(data["available"])
-        self.assertEqual(data["reason"], visuals.REASON)
+        self.assertEqual(data["reason"], visuals.available()[1])
         status, _ = self.request("GET", "/api/visuals", host="evil.example")
         self.assertEqual(status, 403)
 
