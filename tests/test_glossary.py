@@ -12,7 +12,12 @@ class GlossaryTests(unittest.TestCase):
         path = Path(tempfile.mkdtemp()) / "g.json"
         path.write_text(json.dumps({"protected": ["X"]}), encoding="utf-8")
         g = gl.load(path)
-        self.assertEqual(g, {"protected": ["X"], "forbidden": [], "notes": ""})
+        self.assertEqual(g, {"protected": ["X"], "forbidden": [], "notes": "", "style": gl.DEFAULT_STYLE})
+
+    def test_style_is_loaded_when_present(self):
+        path = Path(tempfile.mkdtemp()) / "g.json"
+        path.write_text(json.dumps({"style": "flat illustration"}), encoding="utf-8")
+        self.assertEqual(gl.load(path)["style"], "flat illustration")
 
     def test_to_prompt_mentions_all_parts(self):
         text = gl.to_prompt(GLOSSARY)

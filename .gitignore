@@ -3,3 +3,4 @@ out/
 library/originals.json
 *.tmp
 .DS_Store
+library/images/

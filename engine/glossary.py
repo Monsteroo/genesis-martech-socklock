@@ -2,6 +2,8 @@ import json
 import re
 from pathlib import Path
 
+DEFAULT_STYLE = "clean modern product photography, soft natural light"
+
 
 def load(path):
     data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -9,6 +11,7 @@ def load(path):
         "protected": data.get("protected", []),
         "forbidden": data.get("forbidden", []),
         "notes": data.get("notes", ""),
+        "style": data.get("style") or DEFAULT_STYLE,
     }
 
 
