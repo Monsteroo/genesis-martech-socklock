@@ -247,3 +247,61 @@ class BackendTests(EnvCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MultipartTests(EnvCase):
+    def split(self, body, content_type):
+        boundary = content_type.split("boundary=")[1].encode()
+        return [p for p in body.split(b"--" + boundary) if p not in (b"", b"--\r\n", b"\r\n")]
+
+    def test_body_has_fields_and_a_binary_file_intact(self):
+        blob = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) + b"\r\n--not-the-boundary\r\n"
+        body, ctype = openai_api.multipart_body({"model": "m", "prompt": "a cat"}, {"image": ("original.png", blob, "image/png")})
+        self.assertTrue(ctype.startswith("multipart/form-data; boundary="))
+        self.assertIn(b'name="model"\r\n\r\nm\r\n', body)
+        self.assertIn(b'name="prompt"\r\n\r\na cat\r\n', body)
+        self.assertIn(b'name="image"; filename="original.png"\r\nContent-Type: image/png\r\n\r\n' + blob + b"\r\n", body)
+        self.assertTrue(body.rstrip().endswith(b"--"))
+        self.assertEqual(len(self.split(body, ctype)), 3)
+
+    def test_each_call_uses_a_fresh_boundary(self):
+        a = openai_api.multipart_body({"x": "1"}, {})[1]
+        b = openai_api.multipart_body({"x": "1"}, {})[1]
+        self.assertNotEqual(a, b)
+
+    def test_unsafe_names_are_rejected(self):
+        for fields, files in (({'a"b': "1"}, {}), ({"a\r\nb": "1"}, {}),
+                              ({}, {"image": ('x".png', b"1", "image/png")}),
+                              ({}, {"image": ("x.png", b"1", "image/png\r\nX: y")}),
+                              ({}, {"im age": ("x.png", b"1", "image/png")})):
+            with self.assertRaises(OpenAIError):
+                openai_api.multipart_body(fields, files)
+
+    def test_request_multipart_shape(self):
+        t = FakeTransport(http_ok({"ok": True}))
+        with mock.patch.dict(os.environ, {"OPENAI_BASE_URL": "https://evil.example/v1"}):
+            data = openai_api.request_multipart("/images/edits", {"model": "m"},
+                                                {"image": ("original.png", b"\x89PNG", "image/png")},
+                                                transport=t, timeout=9)
+        self.assertEqual(data, {"ok": True})
+        req = t.requests[0]
+        self.assertEqual(req["method"], "POST")
+        self.assertEqual(req["url"], "https://api.openai.com/v1/images/edits")
+        self.assertEqual(req["headers"]["Authorization"], f"Bearer {TEST_KEY}")
+        self.assertTrue(req["headers"]["Content-Type"].startswith("multipart/form-data; boundary="))
+        self.assertIn(b'name="model"', req["body"])
+        self.assertEqual(req["timeout"], 9)
+
+    def test_multipart_errors_are_redacted_and_not_retried(self):
+        t = FakeTransport(http_error(401, {"error": {"message": f"bad {TEST_KEY}"}}), http_ok({}))
+        with self.assertRaises(OpenAIError) as ctx:
+            openai_api.request_multipart("/images/edits", {"a": "1"}, {}, transport=t)
+        self.assertNotIn(TEST_KEY, str(ctx.exception))
+        self.assertEqual(len(t.requests), 1)
+
+    def test_missing_key_never_calls_the_transport(self):
+        t = FakeTransport()
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            with self.assertRaises(OpenAIError):
+                openai_api.request_multipart("/images/edits", {}, {}, transport=t)
+        self.assertEqual(t.requests, [])

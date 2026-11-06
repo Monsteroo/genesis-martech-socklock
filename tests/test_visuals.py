@@ -375,3 +375,92 @@ class SizeParameterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModifyPromptTests(unittest.TestCase):
+    def test_with_a_change(self):
+        text = visuals.modify_prompt("Socks on a floor", "make it evening light", 3)
+        self.assertIn("make it evening light", text)
+        self.assertIn("Socks on a floor", text)
+        self.assertNotIn(visuals.VARIATIONS[3], text)
+        self.assertIn("No text, no logos, no watermarks", text)
+
+    def test_without_a_change_uses_a_variation_hint(self):
+        text = visuals.modify_prompt("Socks on a floor", None, 3)
+        self.assertIn(visuals.VARIATIONS[3], text)
+        self.assertIn(visuals.VARIATIONS[0], visuals.modify_prompt("x", "", len(visuals.VARIATIONS)))
+
+
+class OpenAIEditTests(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {"OPENAI_API_KEY": TEST_KEY})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.tmp = Path(tempfile.mkdtemp())
+        self.src = self.tmp / "orig.png"
+        self.src.write_bytes(PNG_MAGIC + b"original-bytes")
+        self.dest = self.tmp / "out" / "mod.png"
+
+    def test_edit_posts_multipart_and_writes_the_png(self):
+        t = FakeTransport(image_response())
+        p = visuals.OpenAIImageProvider(transport=t)
+        self.assertEqual(p.edit("change the light", self.src, self.dest, size="1536x1024"), self.dest)
+        self.assertEqual(self.dest.read_bytes(), PNG_MAGIC + b"img")
+        self.assertEqual(list(self.dest.parent.glob("*.part")), [])
+        req = t.requests[0]
+        self.assertTrue(req["url"].endswith("/images/edits"))
+        self.assertTrue(req["headers"]["Content-Type"].startswith("multipart/form-data; boundary="))
+        body = req["body"]
+        for part in (b'name="model"\r\n\r\ngpt-image-2', b'name="prompt"\r\n\r\nchange the light',
+                     b'name="size"\r\n\r\n1536x1024', b'name="quality"\r\n\r\nmedium', b'name="n"\r\n\r\n1',
+                     b'name="image"; filename="original.png"', PNG_MAGIC + b"original-bytes"):
+            self.assertIn(part, body)
+        self.assertEqual(req["timeout"], visuals.IMAGE_API_TIMEOUT)
+
+    def test_default_size_comes_from_the_provider(self):
+        t = FakeTransport(image_response())
+        visuals.OpenAIImageProvider(transport=t).edit("x", self.src, self.dest)
+        self.assertIn(b'name="size"\r\n\r\n1024x1536', t.requests[0]["body"])
+
+    def test_bad_inputs_never_reach_the_api(self):
+        t = FakeTransport()
+        p = visuals.OpenAIImageProvider(transport=t)
+        not_png = self.tmp / "x.png"
+        not_png.write_bytes(b"GIF89a....")
+        for prompt, src in (("", self.src), ("  ", self.src), ("x" * (visuals.MAX_IMAGE_PROMPT + 1), self.src),
+                            ("ok", self.tmp / "missing.png"), ("ok", not_png), ("ok", self.tmp)):
+            with self.assertRaises(llm.LLMError, msg=(prompt[:5], str(src))):
+                p.edit(prompt, src, self.dest)
+        with mock.patch.object(visuals, "MAX_EDIT_SOURCE", 5):
+            with self.assertRaises(llm.LLMError):
+                p.edit("ok", self.src, self.dest)
+        self.assertEqual(t.requests, [])
+        self.assertFalse(self.dest.exists())
+
+    def test_bad_answers_leave_no_file_and_errors_do_not_retry_or_leak(self):
+        for response in (http_ok({"data": []}), http_ok({"data": [{"b64_json": "!!"}]}), image_response(b"not png"),
+                         http_ok({"data": [{"b64_json": None}]})):
+            with self.assertRaises(llm.LLMError):
+                visuals.OpenAIImageProvider(transport=FakeTransport(response)).edit("x", self.src, self.dest)
+            self.assertFalse(self.dest.exists())
+        t = FakeTransport(http_error(429, {"error": {"message": f"limit {TEST_KEY}"}}), image_response())
+        with self.assertRaises(llm.LLMError) as ctx:
+            visuals.OpenAIImageProvider(transport=t).edit("x", self.src, self.dest)
+        self.assertNotIn(TEST_KEY, str(ctx.exception))
+        self.assertEqual(len(t.requests), 1)
+
+    def test_missing_key_never_calls_the_transport(self):
+        t = FakeTransport()
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            with self.assertRaises(llm.LLMError):
+                visuals.OpenAIImageProvider(transport=t).edit("x", self.src, self.dest)
+        self.assertEqual(t.requests, [])
+
+    def test_demo_and_none_providers_have_edit(self):
+        frame = self.tmp / "frame.png"
+        frame.write_bytes(PNG_MAGIC + b"demo")
+        out = self.tmp / "demo-out.png"
+        visuals.DemoImageProvider(frame=frame, delay=0).edit("x", self.src, out, size="1024x1024")
+        self.assertEqual(out.read_bytes(), PNG_MAGIC + b"demo")
+        with self.assertRaises(visuals.VisualsUnavailable):
+            visuals.NoImages().edit("x", self.src, out)

@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from engine.llm import LLMError
-from engine.openai_api import OpenAIError, request_json
+from engine.openai_api import OpenAIError, request_json, request_multipart
 
 MAX_IMAGE_PROMPT = 4000
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
@@ -21,6 +21,7 @@ DEFAULT_IMAGE_SIZE = "1024x1536"
 DEFAULT_IMAGE_QUALITY = "medium"
 IMAGE_API_TIMEOUT = 300
 MAX_IMAGE_B64 = 40_000_000
+MAX_EDIT_SOURCE = 20_000_000
 PNG_MAGIC = bytes([137, 80, 78, 71, 13, 10, 26, 10])
 DEMO_FRAME = Path(__file__).resolve().parent.parent / "samples" / "demo" / "frame.png"
 NO_TEXT = "No text, no logos, no watermarks. Vertical 9:16 composition."
@@ -122,6 +123,16 @@ def quick_prompt(prompt, style=None, variation=None):
     return "\n".join(parts)
 
 
+def modify_prompt(original_prompt, change=None, variation=0):
+    if change and change.strip():
+        action = (f"Modify the provided image: {change.strip()}. "
+                  "Keep the main subject, the composition and the style unless the change says otherwise.")
+    else:
+        action = ("Create a new variation of the provided image, " + VARIATIONS[variation % len(VARIATIONS)]
+                  + ". Keep the same subject and style.")
+    return f"{action}\nOriginal idea: {original_prompt.strip()}\n{NO_TEXT_LINE}"
+
+
 class NoImages:
     kind = "image"
     name = "none"
@@ -130,6 +141,9 @@ class NoImages:
         return False, "Провайдер зображень не налаштовано."
 
     def generate(self, prompt, dest, size=None):
+        raise VisualsUnavailable(self.available()[1])
+
+    def edit(self, prompt, src, dest, size=None):
         raise VisualsUnavailable(self.available()[1])
 
 
@@ -154,6 +168,9 @@ class DemoImageProvider:
             time.sleep(self.delay)
         return _atomic_copy(self.frame, dest)
 
+    def edit(self, prompt, src, dest, size=None):
+        return self.generate(prompt, dest, size)
+
 
 class OpenAIImageProvider:
     kind = "image"
@@ -170,21 +187,15 @@ class OpenAIImageProvider:
             return True, ""
         return False, "Не задано OPENAI_API_KEY (додайте ключ у файл .env)."
 
-    def generate(self, prompt, dest, size=None):
+    @staticmethod
+    def _check_prompt(prompt):
         if not isinstance(prompt, str) or not prompt.strip():
             raise LLMError("Порожній опис зображення.")
         if len(prompt) > MAX_IMAGE_PROMPT:
             raise LLMError(f"Опис зображення задовгий ({len(prompt)} символів, ліміт {MAX_IMAGE_PROMPT}).")
-        try:
-            Path(dest).parent.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            raise LLMError("Не вдалося створити папку для зображення.") from None
-        data = request_json(
-            "POST", "/images/generations",
-            {"model": self.model, "prompt": prompt, "size": size or self.size, "quality": self.quality,
-             "n": 1, "output_format": "png"},
-            transport=self.transport, timeout=IMAGE_API_TIMEOUT,
-        )
+
+    @staticmethod
+    def _save_png(data, dest):
         try:
             encoded = data["data"][0]["b64_json"]
         except (KeyError, IndexError, TypeError):
@@ -200,6 +211,44 @@ class OpenAIImageProvider:
         if not png.startswith(PNG_MAGIC):
             raise OpenAIError("OpenAI повернув не PNG.")
         return _atomic_write(dest, png)
+
+    def generate(self, prompt, dest, size=None):
+        self._check_prompt(prompt)
+        try:
+            Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            raise LLMError("Не вдалося створити папку для зображення.") from None
+        data = request_json(
+            "POST", "/images/generations",
+            {"model": self.model, "prompt": prompt, "size": size or self.size, "quality": self.quality,
+             "n": 1, "output_format": "png"},
+            transport=self.transport, timeout=IMAGE_API_TIMEOUT,
+        )
+        return self._save_png(data, dest)
+
+    def edit(self, prompt, src, dest, size=None):
+        self._check_prompt(prompt)
+        src = Path(src)
+        try:
+            if not src.is_file() or src.stat().st_size > MAX_EDIT_SOURCE:
+                raise LLMError("Оригінал не знайдено або він завеликий.")
+            content = src.read_bytes()
+        except OSError:
+            raise LLMError("Не вдалося прочитати оригінал.") from None
+        if not content.startswith(PNG_MAGIC):
+            raise LLMError("Оригінал має бути PNG-зображенням.")
+        dest = Path(dest)
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            raise LLMError("Не вдалося створити папку для зображення.") from None
+        data = request_multipart(
+            "/images/edits",
+            {"model": self.model, "prompt": prompt, "size": size or self.size, "quality": self.quality, "n": "1"},
+            {"image": ("original.png", content, "image/png")},
+            transport=self.transport, timeout=IMAGE_API_TIMEOUT,
+        )
+        return self._save_png(data, dest)
 
 
 _REGISTRY = {}

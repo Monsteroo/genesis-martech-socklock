@@ -5,6 +5,7 @@ The key comes from the environment only and never appears in output or errors. T
 import json
 import os
 import re
+import secrets
 import urllib.error
 import urllib.request
 
@@ -13,6 +14,8 @@ from engine.llm import MAX_PROMPT, LLMError
 API_BASE = "https://api.openai.com/v1"
 TEXT_TIMEOUT = 120
 _KEY_LIKE = re.compile(r"sk-[A-Za-z0-9_\-]{8,}")
+_NAME = re.compile(r"[A-Za-z0-9_\-\[\]\.]{1,64}")
+_CTYPE = re.compile(r"[a-z]+/[a-z0-9.+\-]+")
 
 
 class OpenAIError(LLMError):
@@ -110,15 +113,14 @@ def _http_error(status, data, key):
     return OpenAIError(base + (f" {detail}" if detail else ""))
 
 
-def request_json(method, path, payload=None, *, transport=None, timeout=TEXT_TIMEOUT):
+def _call(method, path, body, content_type, transport, timeout):
     key = api_key()
-    body = None if payload is None else json.dumps(payload).encode("utf-8")
     request = {
         "method": method,
         "url": API_BASE + path,
         "headers": {
             "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
+            "Content-Type": content_type,
             "User-Agent": "socklock-creative-engine",
         },
         "body": body,
@@ -134,6 +136,33 @@ def request_json(method, path, payload=None, *, transport=None, timeout=TEXT_TIM
     if not isinstance(data, dict):
         raise OpenAIError("OpenAI повернув відповідь не у форматі JSON.")
     return data
+
+
+def request_json(method, path, payload=None, *, transport=None, timeout=TEXT_TIMEOUT):
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    return _call(method, path, body, "application/json", transport, timeout)
+
+
+def multipart_body(fields, files):
+    boundary = "socklock" + secrets.token_hex(16)
+    chunks = []
+    for name, value in fields.items():
+        if not _NAME.fullmatch(name):
+            raise OpenAIError("Некоректне ім'я поля запиту.")
+        chunks.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode("utf-8"))
+    for name, (filename, content, ctype) in files.items():
+        if not (_NAME.fullmatch(name) and _NAME.fullmatch(filename) and _CTYPE.fullmatch(ctype)):
+            raise OpenAIError("Некоректний файл у запиті.")
+        head = (f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
+                f"Content-Type: {ctype}\r\n\r\n").encode("utf-8")
+        chunks.append(head + content + b"\r\n")
+    chunks.append(f"--{boundary}--\r\n".encode("utf-8"))
+    return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
+
+
+def request_multipart(path, fields, files, *, transport=None, timeout=TEXT_TIMEOUT):
+    body, content_type = multipart_body(fields, files)
+    return _call("POST", path, body, content_type, transport, timeout)
 
 
 def list_models(transport=None):

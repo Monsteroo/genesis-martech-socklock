@@ -58,6 +58,7 @@ class FakeImages:
         self.fail = fail
         self.prompts = []
         self.sizes = []
+        self.edits = []
 
     def available(self):
         return self._available
@@ -70,6 +71,15 @@ class FakeImages:
         dest = Path(dest)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(PNG_MAGIC + b"fake")
+        return dest
+
+    def edit(self, prompt, src, dest, size=None):
+        self.edits.append((prompt, str(src), size))
+        if self.fail:
+            raise self.fail
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(PNG_MAGIC + b"edit")
         return dest
 
 
