@@ -25,6 +25,20 @@ INSTRUCTION = (
 )
 
 
+def _atomic_copy(src, dest):
+    """Copy to a .part file, then rename, so an interrupted copy never looks like a finished image."""
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    part = dest.with_name(dest.name + ".part")
+    try:
+        shutil.copyfile(src, part)
+        os.replace(part, dest)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
+    return dest
+
+
 class VisualsUnavailable(LLMError):
     """Readable, user-facing failure."""
 
@@ -72,10 +86,7 @@ class DemoImageProvider:
         ok, reason = self.available()
         if not ok:
             raise VisualsUnavailable(reason)
-        dest = Path(dest)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(self.frame, dest)
-        return dest
+        return _atomic_copy(self.frame, dest)
 
 
 def _thread_id(stdout):
@@ -149,10 +160,7 @@ class CodexImageProvider:
             raise LLMError(
                 "Codex не створив зображення (перевірте, що функція image_generation увімкнена: `codex features list`)."
             )
-        dest = Path(dest)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(found[-1], dest)
-        return dest
+        return _atomic_copy(found[-1], dest)
 
 
 _REGISTRY = {}

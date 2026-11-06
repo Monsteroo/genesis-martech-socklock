@@ -68,6 +68,22 @@ class SimpleProviderTests(unittest.TestCase):
         self.assertEqual(p.generate("anything", dest), dest)
         self.assertEqual(dest.read_bytes(), PNG_MAGIC + b"demo")
 
+    def test_demo_interrupted_copy_leaves_no_partial_file(self):
+        tmp = Path(tempfile.mkdtemp())
+        frame = tmp / "frame.png"
+        frame.write_bytes(PNG_MAGIC)
+        dest = tmp / "out" / "a.png"
+
+        def broken_copy(src, dst):
+            Path(dst).write_bytes(b"trunc")
+            raise OSError("disk full")
+
+        with mock.patch.object(visuals.shutil, "copyfile", broken_copy):
+            with self.assertRaises(OSError):
+                visuals.DemoImageProvider(frame=frame).generate("x", dest)
+        self.assertFalse(dest.exists())
+        self.assertEqual(list(dest.parent.glob("*.part")), [])
+
     def test_demo_provider_without_frame(self):
         p = visuals.DemoImageProvider(frame=Path(tempfile.mkdtemp()) / "missing.png")
         self.assertFalse(p.available()[0])
@@ -77,7 +93,7 @@ class SimpleProviderTests(unittest.TestCase):
 
 class CodexImageProviderTests(unittest.TestCase):
     def setUp(self):
-        self.home = Path(tempfile.mkdtemp())
+        self.home = Path(tempfile.mkdtemp()) / "codex"
         self.dest = Path(tempfile.mkdtemp()) / "lib" / "o001" / "shot-1.png"
 
     def provider(self, **kw):
@@ -143,9 +159,28 @@ class CodexImageProviderTests(unittest.TestCase):
         self.assertFalse(self.dest.exists())
 
     def test_hostile_thread_id_is_rejected(self):
-        p, _ = self.provider(thread_id="../../etc", make_image=False)
+        p, _ = self.provider(thread_id="../../etc")
         with self.assertRaises(llm.LLMError):
             p.generate("a scene", self.dest)
+        self.assertFalse(self.dest.exists())
+
+    def test_interrupted_copy_leaves_no_partial_file(self):
+        p, _ = self.provider()
+
+        def broken_copy(src, dst):
+            Path(dst).write_bytes(b"trunc")
+            raise OSError("disk full")
+
+        with mock.patch.object(visuals.shutil, "copyfile", broken_copy):
+            with self.assertRaises(OSError):
+                p.generate("a scene", self.dest)
+        self.assertFalse(self.dest.exists())
+        self.assertEqual(list(self.dest.parent.glob("*.part")), [])
+
+    def test_successful_copy_leaves_no_part_file(self):
+        p, _ = self.provider()
+        p.generate("a scene", self.dest)
+        self.assertEqual(list(self.dest.parent.glob("*.part")), [])
 
     def test_empty_and_oversized_prompts_never_call_the_runner(self):
         p, calls = self.provider()
