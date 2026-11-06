@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -78,8 +79,28 @@ def cmd_compose(a, e):
     emit(e.compose(a.pain, reuse, [t.upper() for t in a.new]))
 
 
+def _with_path(e, result):
+    return {**result, "path": str(e.image_store.path(result["id"], result["key"]))}
+
+
+def cmd_img_shot(a, e):
+    emit(_with_path(e, e.shot_image(a.id, a.n)))
+
+
+def cmd_img_variant(a, e):
+    path = e.out_dir / f"{a.id}_variants.json"
+    if not path.exists():
+        raise LibraryError(f"Спершу виконайте `modify variants {a.id} --instruction ...`.")
+    variants = json.loads(path.read_text(encoding="utf-8"))
+    emit(_with_path(e, e.variant_image(a.id, _pick(variants, a.k, "варіації"))))
+
+
+def cmd_img_list(a, e):
+    emit(e.list_images(a.id))
+
+
 def cmd_visuals(a, e):
-    ok, reason = visuals.available()
+    ok, reason = e.images.available()
     print("Візуальні чернетки доступні." if ok else f"Візуальні чернетки недоступно: {reason}")
 
 
@@ -147,6 +168,19 @@ def build_parser():
     s.add_argument("--new", action="append", required=True, help="тип блоку, який написати заново")
     s.set_defaults(func=cmd_compose)
 
+    img = sub.add_parser("images", help="фото: кадри й ключові візуали").add_subparsers(dest="sub", required=True)
+    s = img.add_parser("shot")
+    s.add_argument("id")
+    s.add_argument("n", type=int)
+    s.set_defaults(func=cmd_img_shot)
+    s = img.add_parser("variant")
+    s.add_argument("id")
+    s.add_argument("k", type=int)
+    s.set_defaults(func=cmd_img_variant)
+    s = img.add_parser("list")
+    s.add_argument("id")
+    s.set_defaults(func=cmd_img_list)
+
     sub.add_parser("visuals", help="чи доступні візуальні чернетки").set_defaults(func=cmd_visuals)
     s = sub.add_parser("web", help="локальна вебсторінка")
     s.add_argument("--port", type=int, default=8780)
@@ -154,15 +188,14 @@ def build_parser():
     return p
 
 
-def main(argv=None, llm=None, root=None):
+def main(argv=None, llm=None, root=None, images=None):
     args = build_parser().parse_args(argv)
     root = Path(root) if root else DEFAULT_ROOT
     try:
-        if args.func is cmd_visuals:
-            args.func(args, None)
-            return 0
-        backend = llm or get_backend(args.backend)
-        args.func(args, Engine(root, backend))
+        provider = images if images is not None else visuals.get_provider(
+            args.backend or os.environ.get("ENGINE_BACKEND") or "codex")
+        backend = None if args.func is cmd_visuals else (llm or get_backend(args.backend))
+        args.func(args, Engine(root, backend, images=provider))
         return 0
     except (LLMError, LibraryError, OSError, ValueError) as exc:
         print(f"Помилка: {exc}", file=sys.stderr)

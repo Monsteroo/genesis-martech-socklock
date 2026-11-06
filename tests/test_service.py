@@ -1,9 +1,12 @@
 import json
 import unittest
 
+from engine import images as imgs
 from engine.library import LibraryError
+from engine.llm import LLMError
 from engine.service import Engine
-from tests.helpers import SAMPLE_BLOCKS, FakeLLM, make_root, segments_answer
+from engine.visuals import VisualsUnavailable
+from tests.helpers import SAMPLE_BLOCKS, FakeImages, FakeLLM, make_root, segments_answer
 
 PAIN = {"pain": "Lost socks", "quotes": ["q"]}
 CONCEPT = {"angle": "Mystery", "hook": "Hook"}
@@ -132,6 +135,91 @@ class EngineTests(unittest.TestCase):
         with self.assertRaises(LibraryError) as c:
             e.saved_concepts()
         self.assertIn("Спершу", str(c.exception))
+
+
+SHOTS = ["Close-up of a washing drum", "A hand pulling one sock from a drawer"]
+
+
+class ImageTests(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.fake = FakeImages()
+        self.engine = Engine(self.root, FakeLLM(), images=self.fake)
+        self.engine.library.add("Socks", "lost socks", SAMPLE_BLOCKS, shot_list=SHOTS)
+
+    def test_shot_image_is_generated_stored_and_cached(self):
+        first = self.engine.shot_image("o001", 1)
+        self.assertEqual(first, {"id": "o001", "key": "shot-1", "cached": False})
+        path = self.root / "library" / "images" / "o001" / "shot-1.png"
+        self.assertTrue(path.is_file())
+        self.assertIn("Close-up of a washing drum", self.fake.prompts[0])
+        self.assertIn("lost socks", self.fake.prompts[0])
+        again = self.engine.shot_image("o001", 1)
+        self.assertTrue(again["cached"])
+        self.assertEqual(len(self.fake.prompts), 1)  # no second model call
+
+    def test_prompt_uses_the_glossary_style(self):
+        self.engine.shot_image("o001", 2)
+        self.assertIn(self.engine.glossary["style"], self.fake.prompts[0])
+
+    def test_shot_out_of_range_never_calls_the_provider(self):
+        for n in (0, 3, "x"):
+            with self.assertRaises(LibraryError):
+                self.engine.shot_image("o001", n)
+        self.assertEqual(self.fake.prompts, [])
+
+    def test_variant_image_uses_the_hook_hash_key(self):
+        v = {"hook": "Where do lost socks go?", "first_line": "Every wash.", "onscreen": "Lost sock mystery"}
+        result = self.engine.variant_image("o001", v)
+        self.assertEqual(result["key"], imgs.variant_key("Where do lost socks go?"))
+        self.assertTrue((self.root / "library" / "images" / "o001" / f"{result['key']}.png").is_file())
+        self.assertIn("Where do lost socks go?", self.fake.prompts[0])
+
+    def test_variant_needs_all_fields(self):
+        with self.assertRaises(LibraryError):
+            self.engine.variant_image("o001", {"hook": "h", "first_line": "", "onscreen": "o"})
+        with self.assertRaises(LibraryError):
+            self.engine.variant_image("o001", "not a dict")
+        self.assertEqual(self.fake.prompts, [])
+
+    def test_image_dispatch_and_unknown_kind(self):
+        self.assertEqual(self.engine.image({"kind": "shot", "id": "o001", "index": 2})["key"], "shot-2")
+        with self.assertRaises(LibraryError):
+            self.engine.image({"kind": "video", "id": "o001"})
+
+    def test_unknown_original(self):
+        with self.assertRaises(LibraryError):
+            self.engine.shot_image("o404", 1)
+
+    def test_list_images(self):
+        self.assertEqual(self.engine.list_images("o001"), {"keys": []})
+        self.engine.shot_image("o001", 1)
+        self.assertEqual(self.engine.list_images("o001"), {"keys": ["shot-1"]})
+        with self.assertRaises(LibraryError):
+            self.engine.list_images("o404")
+
+    def test_provider_failure_leaves_no_file(self):
+        engine = Engine(self.root, FakeLLM(), images=FakeImages(fail=LLMError("boom")))
+        with self.assertRaises(LLMError):
+            engine.shot_image("o001", 1)
+        self.assertEqual(engine.list_images("o001"), {"keys": []})
+
+    def test_default_provider_is_unavailable(self):
+        engine = Engine(self.root, FakeLLM())
+        with self.assertRaises(VisualsUnavailable):
+            engine.shot_image("o001", 1)
+        self.assertEqual(engine.list_images("o001"), {"keys": []})
+
+
+class VariantKeyTests(unittest.TestCase):
+    def test_variants_carry_their_image_key(self):
+        root = make_root()
+        e = Engine(root, FakeLLM(variants_answer(5)))
+        e.library.add("Socks", "lost", SAMPLE_BLOCKS)
+        result = e.variants("o001", "5 hooks", 5)
+        self.assertTrue(all(v["key"] == imgs.variant_key(v["hook"]) for v in result))
+        saved = json.loads((root / "out" / "o001_variants.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved, result)
 
 
 if __name__ == "__main__":

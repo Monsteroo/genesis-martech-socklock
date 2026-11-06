@@ -4,21 +4,25 @@ from pathlib import Path
 
 from engine import compose as composer
 from engine import glossary
+from engine import images as imgs
 from engine import localize as localizer
 from engine import originals as origin
 from engine import variants as varier
+from engine import visuals
 from engine.library import STATUSES, Library, LibraryError
 
 
 class Engine:
     """Wires the pure modules to the library and to out/ files. CLI and web are thin shells over this."""
 
-    def __init__(self, root, llm):
+    def __init__(self, root, llm, images=None):
         self.root = Path(root)
         self.llm = llm
         self.library = Library(self.root / "library" / "originals.json")
         self.glossary = glossary.load(self.root / "samples" / "glossary.json")
         self.out_dir = self.root / "out"
+        self.images = images if images is not None else visuals.NoImages()
+        self.image_store = imgs.ImageStore(self.root / "library" / "images")
 
     def _save(self, name, data):
         self.out_dir.mkdir(parents=True, exist_ok=True)
@@ -67,6 +71,8 @@ class Engine:
             raise LibraryError("Потрібна інструкція для варіацій.")
         record = self.library.get(original_id)
         result = varier.make_variants(self.llm, record, instruction.strip(), count, self.glossary)
+        for v in result:
+            v["key"] = imgs.variant_key(v["hook"])
         self._save(f"{original_id}_variants.json", result)
         return result
 
@@ -90,3 +96,41 @@ class Engine:
         n = max(numbers, default=0) + 1
         self._save(f"compose_{n}.json", result)
         return result
+
+    # photos
+    def _image(self, original_id, key, prompt):
+        dest = self.image_store.path(original_id, key)
+        if dest.is_file():
+            return {"id": original_id, "key": key, "cached": True}
+        self.images.generate(prompt, dest)
+        return {"id": original_id, "key": key, "cached": False}
+
+    def shot_image(self, original_id, n):
+        record = self.library.get(original_id)
+        shots = record["shot_list"]
+        if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= len(shots):
+            raise LibraryError(f"Немає кадру №{n} (доступно: 1–{len(shots)}).")
+        prompt = visuals.frame_prompt(shots[n - 1], record, self.glossary["style"])
+        return self._image(original_id, imgs.shot_key(n), prompt)
+
+    def variant_image(self, original_id, variant):
+        record = self.library.get(original_id)
+        if not isinstance(variant, dict):
+            raise LibraryError("Очікується варіація (hook, first_line, onscreen).")
+        for field in ("hook", "first_line", "onscreen"):
+            if not isinstance(variant.get(field), str) or not variant[field].strip():
+                raise LibraryError(f"У варіації немає поля {field}.")
+        prompt = visuals.variant_prompt(variant, record, self.glossary["style"])
+        return self._image(original_id, imgs.variant_key(variant["hook"]), prompt)
+
+    def image(self, body):
+        kind = body.get("kind")
+        if kind == "shot":
+            return self.shot_image(body["id"], int(body["index"]))
+        if kind == "variant":
+            return self.variant_image(body["id"], body["variant"])
+        raise LibraryError("kind має бути shot або variant.")
+
+    def list_images(self, original_id):
+        self.library.get(original_id)
+        return {"keys": self.image_store.keys(original_id)}

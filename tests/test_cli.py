@@ -3,17 +3,18 @@ import io
 import json
 import socket
 import unittest
+from pathlib import Path
 
-from engine import cli
-from tests.helpers import SAMPLE_BLOCKS, FakeLLM, make_root
+from engine import cli, visuals
+from tests.helpers import SAMPLE_BLOCKS, FakeImages, FakeLLM, make_root
 
 TEXT = "Every single wash I lose one sock. Pairing socks is the worst chore."
 
 
-def run(argv, llm=None, root=None):
+def run(argv, llm=None, root=None, images=None):
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = cli.main(argv, llm=llm, root=root)
+        code = cli.main(argv, llm=llm, root=root, images=images)
     return code, out.getvalue(), err.getvalue()
 
 
@@ -142,9 +143,60 @@ class CliTests(unittest.TestCase):
             cli.build_parser().parse_args(["originals", "build", "--concept", "1", "--status", "bogus"])
 
     def test_visuals_reports_unavailable_without_a_backend(self):
-        code, out, _ = run(["visuals"], root=self.root)
+        code, out, _ = run(["visuals"], root=self.root, images=visuals.NoImages())
         self.assertEqual(code, 0)
         self.assertIn("недоступно", out)
+
+    def test_visuals_with_a_working_provider(self):
+        code, out, _ = run(["visuals"], root=self.root, images=FakeImages())
+        self.assertEqual(code, 0)
+        self.assertIn("доступні", out)
+
+    def _original(self):
+        from engine.service import Engine
+        return Engine(self.root, FakeLLM()).library.add(
+            "Socks", "lost socks", SAMPLE_BLOCKS, shot_list=["Close-up of a drum", "A hand and a drawer"])
+
+    def test_images_shot_writes_a_file_and_prints_its_path(self):
+        self._original()
+        code, out, err = run(["images", "shot", "o001", "2"], llm=FakeLLM(), root=self.root, images=FakeImages())
+        self.assertEqual(code, 0, err)
+        data = json.loads(out)
+        self.assertEqual(data["key"], "shot-2")
+        self.assertTrue(Path(data["path"]).is_file())
+
+    def test_images_shot_out_of_range_is_a_clean_error(self):
+        self._original()
+        code, _, err = run(["images", "shot", "o001", "9"], llm=FakeLLM(), root=self.root, images=FakeImages())
+        self.assertEqual(code, 1)
+        self.assertIn("Помилка", err)
+
+    def test_images_variant_needs_saved_variants_first(self):
+        self._original()
+        code, _, err = run(["images", "variant", "o001", "1"], llm=FakeLLM(), root=self.root, images=FakeImages())
+        self.assertEqual(code, 1)
+        self.assertIn("Спершу", err)
+
+    def test_images_variant_and_list(self):
+        self._original()
+        out_dir = self.root / "out"
+        out_dir.mkdir(exist_ok=True)
+        variants = [{"hook": "Where do lost socks go?", "first_line": "Every wash.", "onscreen": "Lost sock mystery"}]
+        (out_dir / "o001_variants.json").write_text(json.dumps(variants), encoding="utf-8")
+        fake = FakeImages()
+        code, out, err = run(["images", "variant", "o001", "1"], llm=FakeLLM(), root=self.root, images=fake)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(json.loads(out)["key"].startswith("variant-"))
+        code, out, _ = run(["images", "list", "o001"], llm=FakeLLM(), root=self.root, images=fake)
+        self.assertEqual(len(json.loads(out)["keys"]), 1)
+        code, _, err = run(["images", "variant", "o001", "5"], llm=FakeLLM(), root=self.root, images=fake)
+        self.assertEqual(code, 1)
+
+    def test_images_without_a_provider_say_why(self):
+        self._original()
+        code, _, err = run(["images", "shot", "o001", "1"], llm=FakeLLM(), root=self.root, images=visuals.NoImages())
+        self.assertEqual(code, 1)
+        self.assertIn("не налаштовано", err)
 
 
 if __name__ == "__main__":
