@@ -57,12 +57,14 @@ class FakeImages:
         self._available = available
         self.fail = fail
         self.prompts = []
+        self.sizes = []
 
     def available(self):
         return self._available
 
-    def generate(self, prompt, dest):
+    def generate(self, prompt, dest, size=None):
         self.prompts.append(prompt)
+        self.sizes.append(size)
         if self.fail:
             raise self.fail
         dest = Path(dest)

@@ -3,6 +3,7 @@ import threading
 import unittest
 
 from engine import images as imgs
+from engine import visuals
 from engine.library import LibraryError
 from engine.llm import LLMError
 from engine.service import Engine
@@ -274,6 +275,61 @@ class VariantKeyTests(unittest.TestCase):
         saved = json.loads((root / "out" / "o001_variants.json").read_text(encoding="utf-8"))
         self.assertEqual(saved, result)
 
+
+
+class QuickImageTests(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.fake = FakeImages()
+        self.engine = Engine(self.root, FakeLLM(), images=self.fake)
+
+    def test_generates_stores_and_returns_the_metadata(self):
+        meta = self.engine.quick_image("A pair of socks on a wooden floor", "square", "product")
+        self.assertRegex(meta["id"], r"^g[0-9a-f]{8}$")
+        self.assertTrue((self.root / "library" / "gallery" / f"{meta['id']}.png").is_file())
+        self.assertEqual((meta["size"], meta["style"], meta["parent"]), ("1024x1024", "product", None))
+        self.assertEqual(meta["prompt"], "A pair of socks on a wooden floor")
+        prompt = self.fake.prompts[0]
+        self.assertIn("A pair of socks", prompt)
+        self.assertIn(visuals.STYLES["product"], prompt)
+        self.assertIn("No text", prompt)
+        self.assertEqual(self.fake.sizes, ["1024x1024"])
+
+    def test_defaults_are_vertical_and_no_style(self):
+        meta = self.engine.quick_image("Socks")
+        self.assertEqual((meta["size"], meta["style"]), ("1024x1536", None))
+
+    def test_validation_never_calls_the_provider(self):
+        for kwargs in ({"prompt": ""}, {"prompt": "   "}, {"prompt": "x" * 1001},
+                       {"prompt": "ok", "format": "huge"}, {"prompt": "ok", "style": "bogus"},
+                       {"prompt": "ok", "parent": "../x"}, {"prompt": "", "parent": "g0000abcd"}):
+            with self.assertRaises(LibraryError, msg=str(kwargs)):
+                self.engine.quick_image(**kwargs)
+        self.assertEqual(self.fake.prompts, [])
+
+    def test_more_like_this_reuses_prompt_size_and_style_with_a_variation_hint(self):
+        first = self.engine.quick_image("Socks", "wide", "minimal")
+        second = self.engine.quick_image(parent=first["id"], variation=1)
+        self.assertEqual(second["parent"], first["id"])
+        self.assertEqual((second["prompt"], second["size"], second["style"]), ("Socks", "1536x1024", "minimal"))
+        self.assertIn(visuals.VARIATIONS[1], self.fake.prompts[1])
+        self.assertIn("Socks", self.fake.prompts[1])
+        self.assertEqual(self.fake.sizes, ["1536x1024", "1536x1024"])
+
+    def test_a_provider_failure_leaves_nothing_behind(self):
+        engine = Engine(self.root, FakeLLM(), images=FakeImages(fail=LLMError("boom")))
+        with self.assertRaises(LLMError):
+            engine.quick_image("Socks")
+        self.assertEqual(engine.list_gallery(), {"items": []})
+
+    def test_list_zip_and_delete(self):
+        a = self.engine.quick_image("A")
+        b = self.engine.quick_image("B")
+        ids = [m["id"] for m in self.engine.list_gallery()["items"]]
+        self.assertEqual(sorted(ids), sorted([a["id"], b["id"]]))
+        self.assertTrue(self.engine.gallery_zip([a["id"], b["id"]]).startswith(b"PK"))
+        self.assertEqual(self.engine.delete_gallery([a["id"]]), {"deleted": 1})
+        self.assertEqual([m["id"] for m in self.engine.list_gallery()["items"]], [b["id"]])
 
 if __name__ == "__main__":
     unittest.main()

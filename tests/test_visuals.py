@@ -330,5 +330,49 @@ class DemoDelayTests(unittest.TestCase):
                 self.assertEqual(visuals.DemoImageProvider(frame=frame).delay, want, raw)
 
 
+
+class QuickPromptTests(unittest.TestCase):
+    def test_sizes_styles_and_variations(self):
+        self.assertEqual(visuals.SIZES, {"vertical": "1024x1536", "square": "1024x1024", "wide": "1536x1024"})
+        self.assertEqual(sorted(visuals.STYLES), ["illustration", "lifestyle", "minimal", "product"])
+        self.assertEqual(len(visuals.VARIATIONS), 8)
+
+    def test_quick_prompt_parts(self):
+        text = visuals.quick_prompt("  A cup of coffee  ", "minimal", 1)
+        self.assertTrue(text.startswith("A cup of coffee"))
+        self.assertIn(visuals.STYLES["minimal"], text)
+        self.assertIn(visuals.VARIATIONS[1], text)
+        self.assertIn("No text, no logos, no watermarks", text)
+
+    def test_quick_prompt_without_style_or_variation(self):
+        text = visuals.quick_prompt("A cup", None, None)
+        self.assertEqual(text, "A cup\nNo text, no logos, no watermarks.")
+
+    def test_variation_index_wraps_around(self):
+        self.assertIn(visuals.VARIATIONS[0], visuals.quick_prompt("x", None, len(visuals.VARIATIONS)))
+
+    def test_unknown_style_is_ignored_safely(self):
+        self.assertNotIn("None", visuals.quick_prompt("x", "bogus", None))
+
+
+class SizeParameterTests(unittest.TestCase):
+    def test_openai_provider_sends_the_requested_size(self):
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": TEST_KEY}):
+            t = FakeTransport(image_response(), image_response())
+            p = visuals.OpenAIImageProvider(transport=t)
+            tmp = Path(tempfile.mkdtemp())
+            p.generate("a scene", tmp / "a.png", size="1536x1024")
+            p.generate("a scene", tmp / "b.png")
+        self.assertEqual(json.loads(t.requests[0]["body"])["size"], "1536x1024")
+        self.assertEqual(json.loads(t.requests[1]["body"])["size"], "1024x1536")
+
+    def test_demo_and_none_providers_accept_the_size_argument(self):
+        tmp = Path(tempfile.mkdtemp())
+        frame = tmp / "frame.png"
+        frame.write_bytes(PNG_MAGIC + b"demo")
+        visuals.DemoImageProvider(frame=frame, delay=0).generate("x", tmp / "o.png", size="1024x1024")
+        with self.assertRaises(visuals.VisualsUnavailable):
+            visuals.NoImages().generate("x", tmp / "n.png", size="1024x1024")
+
 if __name__ == "__main__":
     unittest.main()

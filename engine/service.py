@@ -4,6 +4,7 @@ import threading
 from pathlib import Path
 
 from engine import compose as composer
+from engine import gallery as galleries
 from engine import glossary
 from engine import images as imgs
 from engine import localize as localizer
@@ -11,6 +12,9 @@ from engine import originals as origin
 from engine import variants as varier
 from engine import visuals
 from engine.library import STATUSES, Library, LibraryError
+
+
+MAX_QUICK_PROMPT = 1000
 
 
 class Engine:
@@ -24,12 +28,50 @@ class Engine:
         self.out_dir = self.root / "out"
         self.images = images if images is not None else visuals.NoImages()
         self.image_store = imgs.ImageStore(self.root / "library" / "images")
+        self.gallery = galleries.Gallery(self.root / "library" / "gallery")
         self._image_locks = {}
         self._image_locks_guard = threading.Lock()
 
     def _save(self, name, data):
         self.out_dir.mkdir(parents=True, exist_ok=True)
         (self.out_dir / name).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # free-form generator
+    def quick_image(self, prompt="", format="vertical", style=None, parent=None, variation=0):
+        if parent:
+            meta = self.gallery.get(parent)
+            base_prompt, size, style = meta["prompt"], meta["size"], meta.get("style")
+            if not isinstance(variation, int) or isinstance(variation, bool) or variation < 0:
+                raise LibraryError("Некоректний номер варіації.")
+        else:
+            if not isinstance(prompt, str) or not prompt.strip():
+                raise LibraryError("Опишіть, що потрібно згенерувати.")
+            base_prompt = prompt.strip()
+            if len(base_prompt) > MAX_QUICK_PROMPT:
+                raise LibraryError(f"Опис задовгий (до {MAX_QUICK_PROMPT} символів).")
+            if format not in visuals.SIZES:
+                raise LibraryError(f"Невідомий формат: {format}. Доступні: {', '.join(visuals.SIZES)}")
+            if style in ("", None):
+                style = None
+            elif style not in visuals.STYLES:
+                raise LibraryError(f"Невідомий стиль: {style}. Доступні: {', '.join(visuals.STYLES)}")
+            size = visuals.SIZES[format]
+            variation = None
+        final = visuals.quick_prompt(base_prompt, style, variation if parent else None)
+        gid = galleries.new_id()
+        self.images.generate(final, self.gallery.path(gid), size=size)
+        return self.gallery.add(gid, base_prompt, size, parent=parent or None, style=style)
+
+    def list_gallery(self):
+        return {"items": self.gallery.find()}
+
+    def delete_gallery(self, ids):
+        if not isinstance(ids, list):
+            raise LibraryError("Очікується список id.")
+        return {"deleted": self.gallery.delete(ids)}
+
+    def gallery_zip(self, ids):
+        return self.gallery.zip_bytes(ids)
 
     # tab 1
     def pains(self, text):

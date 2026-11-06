@@ -88,6 +88,40 @@ def variant_prompt(variant, original, style):
     )
 
 
+SIZES = {"vertical": "1024x1536", "square": "1024x1024", "wide": "1536x1024"}
+STYLES = {
+    "product": "clean modern product photography, soft natural light",
+    "lifestyle": "candid lifestyle photo, natural light, real-life setting",
+    "illustration": "flat vector illustration, bold colors, simple shapes",
+    "minimal": "minimalist composition, plenty of negative space, plain studio background",
+}
+VARIATIONS = (
+    "from a different camera angle",
+    "with different lighting",
+    "as a closer crop",
+    "as a wider shot",
+    "with a different background",
+    "with a different color palette",
+    "at a different time of day",
+    "with a different composition",
+)
+NO_TEXT_LINE = "No text, no logos, no watermarks."
+
+
+def quick_prompt(prompt, style=None, variation=None):
+    parts = [prompt.strip()]
+    if style in STYLES:
+        parts.append(STYLES[style])
+    if variation is not None:
+        parts.append(
+            "Create a new variation of the same idea, "
+            + VARIATIONS[variation % len(VARIATIONS)]
+            + ", keeping the subject and style."
+        )
+    parts.append(NO_TEXT_LINE)
+    return "\n".join(parts)
+
+
 class NoImages:
     kind = "image"
     name = "none"
@@ -95,7 +129,7 @@ class NoImages:
     def available(self):
         return False, "Провайдер зображень не налаштовано."
 
-    def generate(self, prompt, dest):
+    def generate(self, prompt, dest, size=None):
         raise VisualsUnavailable(self.available()[1])
 
 
@@ -112,7 +146,7 @@ class DemoImageProvider:
             return True, ""
         return False, f"Немає демо-зображення ({self.frame.name})."
 
-    def generate(self, prompt, dest):
+    def generate(self, prompt, dest, size=None):
         ok, reason = self.available()
         if not ok:
             raise VisualsUnavailable(reason)
@@ -136,7 +170,7 @@ class OpenAIImageProvider:
             return True, ""
         return False, "Не задано OPENAI_API_KEY (додайте ключ у файл .env)."
 
-    def generate(self, prompt, dest):
+    def generate(self, prompt, dest, size=None):
         if not isinstance(prompt, str) or not prompt.strip():
             raise LLMError("Порожній опис зображення.")
         if len(prompt) > MAX_IMAGE_PROMPT:
@@ -147,7 +181,7 @@ class OpenAIImageProvider:
             raise LLMError("Не вдалося створити папку для зображення.") from None
         data = request_json(
             "POST", "/images/generations",
-            {"model": self.model, "prompt": prompt, "size": self.size, "quality": self.quality,
+            {"model": self.model, "prompt": prompt, "size": size or self.size, "quality": self.quality,
              "n": 1, "output_format": "png"},
             transport=self.transport, timeout=IMAGE_API_TIMEOUT,
         )
