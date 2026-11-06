@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <title>Генератор зображень</title>
 <style>
 :root{--bg:#fff;--fg:#1a1a1a;--mut:#667;--line:#e2e2e8;--edge:#8a8a99;--acc:#4f46e5;--acc-fg:#fff;--card:#fafafc;--bad:#c62828;--sel:#4f46e5;--backing:rgba(255,255,255,.85)}
@@ -26,7 +26,7 @@ textarea:focus,button:focus-visible,.pickbox:focus-within{outline:2px solid var(
 .seg button{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:6px 14px;font:inherit;font-size:14px;cursor:pointer}
 .seg button[aria-pressed="true"]{background:var(--acc);color:var(--acc-fg);border-color:var(--acc)}
 #go{background:var(--acc);color:var(--acc-fg);border:0;border-radius:12px;padding:12px 28px;font:inherit;font-weight:600;font-size:17px;cursor:pointer}
-#go:disabled{opacity:.5;cursor:not-allowed}
+[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
 .mut{color:var(--mut);font-size:14px}
 .small{font-size:13px}
 #examples button{background:none;border:0;color:var(--acc);text-decoration:underline;font:inherit;font-size:14px;padding:2px 4px;margin-right:6px;cursor:pointer}
@@ -44,12 +44,13 @@ textarea:focus,button:focus-visible,.pickbox:focus-within{outline:2px solid var(
 .acts button,.fixes button{border:1px solid var(--edge);background:transparent;color:var(--fg);border-radius:8px;padding:5px 10px;font:inherit;font-size:13px;cursor:pointer}
 .fixes{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
 .bad{color:var(--bad);font-size:14px}
+.fixes button.primary{background:var(--acc);color:var(--acc-fg);border-color:var(--acc)}
 .spin{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:s 1s linear infinite}
 @keyframes s{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spin{animation:none}}
 #more{display:block;margin:18px auto 0;border:1px solid var(--edge);background:var(--card);color:var(--fg);border-radius:10px;padding:8px 20px;font:inherit;cursor:pointer}
 .bar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom));display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;z-index:5}
-.bar button{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:10px;padding:8px 16px;font:inherit;cursor:pointer}
+.bar button{border:1px solid var(--edge);background:var(--card);color:var(--fg);border-radius:10px;padding:8px 16px;font:inherit;cursor:pointer}
 .bar button.main{background:var(--acc);color:var(--acc-fg);border-color:var(--acc)}
 #barmsg{color:var(--bad);font-size:14px;flex-basis:100%;text-align:center}
 [hidden]{display:none!important}
@@ -72,7 +73,7 @@ textarea:focus,button:focus-visible,.pickbox:focus-within{outline:2px solid var(
   <div class="row"><span class="lbl">Скільки</span><div class="seg" id="count" role="group" aria-label="Скільки зображень"></div></div>
   <div class="row"><span class="lbl">Формат</span><div class="seg" id="format" role="group" aria-label="Формат"></div></div>
   <div class="row"><span class="lbl">Стиль</span><div class="seg" id="style" role="group" aria-label="Стиль"></div></div>
-  <div class="row"><button id="go" type="button">Згенерувати</button><span id="hint" class="mut" aria-live="polite"></span></div>
+  <div class="row"><button id="go" type="button" aria-disabled="true">Згенерувати</button><span id="hint" class="mut"></span></div>
   <div class="mut small">Ctrl+Enter — швидкий запуск</div>
   <div id="msg" class="mut" role="status" aria-live="polite"></div>
   <div id="note" class="mut" role="status" aria-live="polite"></div>
@@ -96,6 +97,7 @@ const TIMEOUT = { api: 60000, gen: 180000, blob: 60000 };
 const SLOW = "Сервер довго не відповідає. Спробуйте ще раз.";
 const STALE = "Сторінка застаріла. Оновіть її (F5).";
 const PAGE = 24;
+const AMBIGUOUS = "Зображення могло вже створитися. Оновіть сторінку й перегляньте галерею.";
 
 const $ = (id) => document.getElementById(id);
 const h = (tag, props, ...kids) => {
@@ -127,10 +129,10 @@ async function apiQuiet(path, payload, ms = TIMEOUT.api) {
       const body = await res.json().catch(() => ({}));
       if (res.ok && body.ok !== false) return { ok: true, data: body.data };
       if (typeof body.error === "string" && body.error) return { ok: false, error: body.error, server: true };
-      return { ok: false, error: "Помилка сервера. Спробуйте ще раз." };
+      return { ok: false, ambiguous: true, error: "Помилка сервера. Спробуйте ще раз." };
     });
   } catch (e) {
-    return { ok: false, error: e.name === "AbortError" ? SLOW : "Немає зв'язку з програмою." };
+    return { ok: false, ambiguous: true, error: e.name === "AbortError" ? SLOW : "Немає зв'язку з програмою." };
   }
 }
 
@@ -159,22 +161,33 @@ function save(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-/* ---------- one global queue: never more than CONFIG.workers at once ---------- */
+/* ---------- queues: generation (CONFIG.workers) and gallery loading (3) never wait on each other ---------- */
 let CONFIG = { workers: 4, price_usd: null };
-const queue = [];
-let active = 0;
-const limit = () => Math.max(1, Math.min(8, Number(CONFIG.workers) || 4));
 
-function enqueue(task) {
-  queue.push(task);
-  pump();
-}
-function pump() {
-  while (active < limit() && queue.length) {
-    const task = queue.shift();
-    active++;
-    task().catch(() => {}).finally(() => { active--; pump(); });
+function makeQueue(limit) {
+  const waiting = [];
+  let active = 0;
+  function pump() {
+    while (active < limit() && waiting.length) {
+      const task = waiting.shift();
+      active++;
+      task().catch(() => {}).finally(() => { active--; pump(); });
+    }
   }
+  return (task) => { waiting.push(task); pump(); };
+}
+const enqueueGen = makeQueue(() => Math.max(1, Math.min(8, Number(CONFIG.workers) || 4)));
+const enqueueGallery = makeQueue(() => 3);
+
+/* ---------- busy buttons: aria-disabled keeps keyboard focus ---------- */
+const isBusy = (btn) => btn.getAttribute("aria-disabled") === "true";
+const setBusy = (btn, on) => btn.setAttribute("aria-disabled", String(on));
+function guarded(btn, fn) {
+  btn.addEventListener("click", async () => {
+    if (isBusy(btn)) return;
+    setBusy(btn, true);
+    try { await fn(); } finally { setBusy(btn, false); }
+  });
 }
 
 /* ---------- options ---------- */
@@ -243,21 +256,27 @@ function makeTile(opts) {
     }, 1000);
   };
 
-  tile.fail = (message) => {
+  // kind: "ambiguous" (the image may exist already), "stale" (old token) or nothing (safe to retry).
+  tile.fail = (message, kind) => {
     stopTimer();
-    const again = h("button", { type: "button" }, "Спробувати ще");
+    const reload = h("button", { type: "button", className: "primary" }, "Оновити сторінку");
+    reload.addEventListener("click", () => location.reload());
+    const again = h("button", { type: "button" }, kind === "ambiguous" ? "Спробувати ще (нова оплата)" : "Спробувати ще");
     again.addEventListener("click", tile.submit);
-    const drop = h("button", { type: "button" }, "Прибрати");
+    const drop = h("button", { type: "button" }, tile.meta ? "Сховати" : "Прибрати");
     drop.addEventListener("click", () => { tile.remove(); updateChrome(); });
+    const lines = [h("div", { className: "bad" }, message)];
+    if (kind === "ambiguous") lines.push(h("div", { className: "mut small" }, "Зображення, що ще створюються, з'являться в галереї після оновлення."));
+    const buttons = kind === "stale" ? [reload, drop] : kind === "ambiguous" ? [reload, again, drop] : [again, drop];
     body.className = "body msg";
-    body.replaceChildren(h("div", { className: "bad" }, message), h("div", { className: "fixes" }, again, drop));
+    body.replaceChildren(...lines, h("div", { className: "fixes" }, ...buttons));
   };
 
   tile.addPick = () => {
     if (tile.pickEl) return;
     const box = h("input", { type: "checkbox", className: "pick" });
     box.setAttribute("aria-label", "Вибрати зображення");
-    box.addEventListener("change", () => { el.classList.toggle("sel", box.checked); updateChrome(); });
+    box.addEventListener("change", () => { el.classList.toggle("sel", box.checked); barNote(); updateChrome(); });
     tile.pickEl = box;
     tile.picked = () => box.checked;
     el.prepend(h("label", { className: "pickbox" }, box));
@@ -275,6 +294,7 @@ function makeTile(opts) {
     const open = h("button", { type: "button", className: "imgbtn", title: text }, img);
     open.setAttribute("aria-label", "Відкрити зображення: " + text);
     open.addEventListener("click", () => window.open(tile.url, "_blank", "noopener"));
+    stopTimer();
     body.className = "body";
     body.replaceChildren(open);
     if (!el.querySelector(".acts")) {
@@ -296,17 +316,26 @@ function makeTile(opts) {
     tile.running();
     if (!tile.meta) {
       const res = await apiQuiet("/api/gen", opts.payload, TIMEOUT.gen);
-      if (!res.ok) return tile.fail(res.server ? "Не вийшло: " + res.error : res.error);
+      if (!res.ok) {
+        const kind = res.stale ? "stale" : res.ambiguous ? "ambiguous" : undefined;
+        const text = res.server ? "Не вийшло: " + res.error : kind === "ambiguous" ? AMBIGUOUS : res.error;
+        return tile.fail(text, kind);
+      }
+      if (!res.data || typeof res.data.id !== "string") return tile.fail(AMBIGUOUS, "ambiguous");
       tile.meta = res.data;
     }
     try {
       await tile.show();
     } catch (e) {
-      if (!tile.dead) tile.fail(explain(e, "Не вдалося завантажити зображення."));
+      if (!tile.dead) {
+        const stale = e && (e.status === 401 || e.status === 403);
+        tile.fail(explain(e, "Не вдалося завантажити зображення."), stale ? "stale" : undefined);
+      }
     }
     updateChrome();
   };
 
+  const enqueue = opts.meta ? enqueueGallery : enqueueGen;
   tile.submit = () => { tile.queued(); enqueue(tile.process); };
 
   tile.remove = () => {
@@ -330,7 +359,7 @@ function generate(payloads) {
 }
 
 function generateFromForm() {
-  if ($("go").disabled) return;
+  if (isBusy($("go"))) return;
   const text = $("prompt").value.trim();
   $("msg").textContent = "";
   if (!text) {
@@ -338,11 +367,13 @@ function generateFromForm() {
     $("prompt").focus();
     return;
   }
-  $("go").disabled = true;
-  setTimeout(() => { if (!keyMissing) $("go").disabled = false; }, 1500);
+  locks.cool = true;
+  syncGo();
+  setTimeout(() => { locks.cool = false; syncGo(); }, 1500);
   generate(Array.from({ length: state.count }, () => ({ prompt: text, format: state.format, style: state.style })));
 }
-let keyMissing = false;
+const locks = { startup: true, key: false, cool: false };
+const syncGo = () => setBusy($("go"), locks.startup || locks.key || locks.cool);
 
 $("go").addEventListener("click", generateFromForm);
 $("prompt").addEventListener("keydown", (e) => {
@@ -362,7 +393,7 @@ $("clear").addEventListener("click", () => {
   updateChrome();
 });
 
-$("dl").addEventListener("click", async () => {
+guarded($("dl"), async () => {
   barNote();
   const chosen = picked();
   try {
@@ -378,7 +409,7 @@ $("dl").addEventListener("click", async () => {
   }
 });
 
-$("del").addEventListener("click", async () => {
+guarded($("del"), async () => {
   barNote();
   const chosen = picked();
   if (!confirm("Видалити вибране (" + chosen.length + ") назавжди?")) return;
@@ -411,10 +442,9 @@ async function start() {
     $("banner").append(
       h("p", {}, "Щоб почати, додайте ключ OpenAI. Відкрийте файл .env у папці програми, вставте рядок OPENAI_API_KEY=ваш_ключ і перезапустіть програму."),
       h("p", {}, "Не знаєте, як? Покажіть це повідомлення тому, хто налаштовував програму."),
-      h("details", {}, h("summary", {}, "Деталі"), reason));
+      ...(reason ? [h("details", {}, h("summary", {}, "Деталі"), reason)] : []));
     $("banner").hidden = false;
-    $("go").disabled = true;
-    keyMissing = true;
+    locks.key = true;
   }
 
   if (gallery.ok && gallery.data && Array.isArray(gallery.data.items)) {
@@ -424,6 +454,8 @@ async function start() {
   } else {
     $("note").textContent = gallery.stale ? STALE : "Не вдалося завантажити галерею. Оновіть сторінку.";
   }
+  locks.startup = false;
+  syncGo();
   updateChrome();
 }
 start();
