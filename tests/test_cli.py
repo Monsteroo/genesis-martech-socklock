@@ -1,12 +1,14 @@
 import contextlib
 import io
 import json
+import os
 import socket
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from engine import cli, visuals
-from tests.helpers import SAMPLE_BLOCKS, FakeImages, FakeLLM, make_root
+from engine import cli, openai_api, visuals
+from tests.helpers import SAMPLE_BLOCKS, TEST_KEY, FakeImages, FakeLLM, FakeTransport, http_ok, make_root
 
 TEXT = "Every single wash I lose one sock. Pairing socks is the worst chore."
 
@@ -204,6 +206,41 @@ class CliTests(unittest.TestCase):
         code, _, err = run(["images", "shot", "o001", "1"], llm=FakeLLM(), root=self.root, images=visuals.NoImages())
         self.assertEqual(code, 1)
         self.assertIn("не налаштовано", err)
+
+    def test_models_lists_ids_with_filter(self):
+        t = FakeTransport(http_ok({"data": [{"id": "gpt-image-2"}, {"id": "other-model"}]}))
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": TEST_KEY}), \
+                mock.patch.object(openai_api, "DEFAULT_TRANSPORT", t):
+            code, out, err = run(["models", "--filter", "image"], root=self.root)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out.strip(), "gpt-image-2")
+        self.assertNotIn(TEST_KEY, out + err)
+
+    def test_models_without_a_key_explains_how_to_fix_it(self):
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            code, _, err = run(["models"], root=self.root)
+        self.assertEqual(code, 1)
+        self.assertIn(".env", err)
+
+    def test_dotenv_in_the_root_is_loaded(self):
+        (self.root / ".env").write_text("OPENAI_API_KEY=sk-from-file-0123456789\n", encoding="utf-8")
+        t = FakeTransport(http_ok({"data": []}))
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""}), \
+                mock.patch.object(openai_api, "DEFAULT_TRANSPORT", t):
+            code, _, err = run(["models"], root=self.root)
+            self.assertEqual(code, 0, err)
+            self.assertEqual(t.requests[0]["headers"]["Authorization"], "Bearer sk-from-file-0123456789")
+
+    def test_the_codex_backend_choice_is_rejected_by_argparse(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            cli.main(["--backend", "codex", "library", "list"], root=self.root)
+
+    def test_codex_from_the_environment_says_it_was_removed(self):
+        with mock.patch.dict(os.environ, {"ENGINE_BACKEND": "codex"}):
+            code, _, err = run(["library", "list"], root=self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("видалено", err)
 
 
 if __name__ == "__main__":

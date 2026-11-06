@@ -1,26 +1,21 @@
 """Image generation providers.
 
 A provider has `kind` ("image" or "video"), `name`, `available() -> (bool, reason)` and
-`generate(prompt, dest) -> Path`. Built in: codex (the user's ChatGPT subscription through the Codex CLI),
+`generate(prompt, dest) -> Path`. Built in: openai (the OpenAI Images API with the user's key),
 demo (a bundled sample frame) and NoImages (nothing configured). Other providers, for example HeyGen for
 video, plug in through register_provider(). There is no automatic fallback between providers."""
 import base64
-import json
 import math
 import os
-import re
 import shutil
-import subprocess
 import tempfile
 import time
 from pathlib import Path
 
-from engine.llm import LLMError, clean_env, codex_binary, require_login, subprocess_runner
+from engine.llm import LLMError
 from engine.openai_api import OpenAIError, request_json
 
-IMAGE_TIMEOUT = 300
 MAX_IMAGE_PROMPT = 4000
-IMAGE_SANDBOX = "read-only"
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_IMAGE_SIZE = "1024x1536"
 DEFAULT_IMAGE_QUALITY = "medium"
@@ -29,10 +24,6 @@ MAX_IMAGE_B64 = 40_000_000
 PNG_MAGIC = bytes([137, 80, 78, 71, 13, 10, 26, 10])
 DEMO_FRAME = Path(__file__).resolve().parent.parent / "samples" / "demo" / "frame.png"
 NO_TEXT = "No text, no logos, no watermarks. Vertical 9:16 composition."
-INSTRUCTION = (
-    "Generate ONE image with your built-in image generation tool. "
-    "Do not run any other commands. Reply only with the saved file path.\n\nImage description:\n"
-)
 
 
 def _atomic_copy(src, dest):
@@ -130,107 +121,6 @@ class DemoImageProvider:
         return _atomic_copy(self.frame, dest)
 
 
-def _thread_id(stdout):
-    for line in (stdout or "").splitlines():
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(event, dict) and event.get("type") == "thread.started" and event.get("thread_id"):
-            return str(event["thread_id"])
-    return None
-
-
-def _last_error(stdout):
-    """The last error message Codex reported as a JSONL event (`error` or `turn.failed`), or None."""
-    found = None
-    for line in (stdout or "").splitlines():
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(event, dict):
-            continue
-        if event.get("type") == "error":
-            message = event.get("message")
-        elif event.get("type") == "turn.failed":
-            error = event.get("error")
-            message = error.get("message") if isinstance(error, dict) else None
-        else:
-            continue
-        if isinstance(message, str) and message.strip():
-            found = message.strip()
-    return found
-
-
-class CodexImageProvider:
-    kind = "image"
-    name = "codex"
-
-    def __init__(self, runner=subprocess_runner, binary=None, codex_home=None):
-        self.runner = runner
-        self.binary = binary or codex_binary()
-        self.codex_home = Path(codex_home or os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-
-    def available(self):
-        if not self.binary:
-            return False, "Codex CLI не знайдено (задайте CODEX_BIN)."
-        env = clean_env()
-        try:
-            require_login(self.runner, self.binary, env)
-        except LLMError as exc:
-            return False, str(exc)
-        try:
-            res = self.runner([self.binary, "features", "list"], env, 30, None)
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            return False, f"Не вдалося перевірити функції Codex: {exc}"
-        text = (res.stdout or "") + (res.stderr or "")
-        if res.returncode == 0 and re.search(r"^image_generation\s+\S+\s+true\s*$", text, re.M):
-            return True, ""
-        return False, "У Codex вимкнена функція image_generation (перевірте `codex features list`)."
-
-    def generate(self, prompt, dest):
-        if not isinstance(prompt, str) or not prompt.strip():
-            raise LLMError("Порожній опис зображення.")
-        if len(prompt) > MAX_IMAGE_PROMPT:
-            raise LLMError(f"Опис зображення задовгий ({len(prompt)} символів, ліміт {MAX_IMAGE_PROMPT}).")
-        env = clean_env()
-        require_login(self.runner, self.binary, env)
-        with tempfile.TemporaryDirectory() as tmp:
-            out_file = Path(tmp) / "answer.txt"
-            args = [
-                self.binary, "exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config",
-                "--sandbox", IMAGE_SANDBOX, "--json", "--cd", tmp, "-o", str(out_file), INSTRUCTION + prompt,
-            ]
-            try:
-                res = self.runner(args, env, IMAGE_TIMEOUT, tmp)
-            except subprocess.TimeoutExpired:
-                raise LLMError(
-                    f"Codex не створив зображення за {IMAGE_TIMEOUT} с. "
-                    "Автоматичного повтору немає: він витрачає ліміти підписки."
-                )
-            except OSError as exc:
-                raise LLMError(f"Не вдалося запустити Codex ({self.binary}): {exc}")
-            if res.returncode != 0:
-                tail = _last_error(res.stdout) or (res.stderr or res.stdout or "").strip()[-300:]
-                raise LLMError(f"Codex завершився з помилкою: {tail}")
-        thread_id = _thread_id(res.stdout)
-        if not thread_id or not re.fullmatch(r"[A-Za-z0-9-]+", thread_id):
-            raise LLMError("Codex не повідомив ідентифікатор сеансу, зображення не знайдено.")
-        folder = self.codex_home / "generated_images" / thread_id
-        found = sorted(folder.glob("*.png"), key=lambda p: p.stat().st_mtime) if folder.is_dir() else []
-        if not found:
-            message = (
-                f"Codex не створив зображення (шукав у {folder}). Можливо, вичерпано ліміт підписки, "
-                "Codex змінив місце збереження або вимкнено image_generation (`codex features list`)."
-            )
-            reported = _last_error(res.stdout)
-            if reported:
-                message += f" Codex повідомив: {reported}"
-            raise LLMError(message)
-        return _atomic_copy(found[-1], dest)
-
-
 class OpenAIImageProvider:
     kind = "image"
     name = "openai"
@@ -292,6 +182,5 @@ def get_provider(name, kind="image", **kw):
     return factory(**kw)
 
 
-register_provider("codex", "image", CodexImageProvider)
 register_provider("demo", "image", DemoImageProvider)
 register_provider("openai", "image", OpenAIImageProvider)

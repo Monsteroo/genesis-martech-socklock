@@ -4,7 +4,7 @@ import os
 import sys
 from pathlib import Path
 
-from engine import visuals
+from engine import envfile, openai_api, visuals
 from engine.library import STATUSES, LibraryError, render_script
 from engine.llm import LLMError, get_backend
 from engine.localize import MARKETS
@@ -104,6 +104,13 @@ def cmd_visuals(a, e):
     print("Візуальні чернетки доступні." if ok else f"Візуальні чернетки недоступно: {reason}")
 
 
+def cmd_models(a, e):
+    ids = openai_api.list_models()
+    if a.filter:
+        ids = [i for i in ids if a.filter.casefold() in i.casefold()]
+    print("\n".join(ids) if ids else "Моделей не знайдено.")
+
+
 def cmd_web(a, e):
     from engine.web import make_server
 
@@ -122,8 +129,8 @@ def cmd_web(a, e):
 
 def build_parser():
     p = argparse.ArgumentParser(prog="engine", description="SockLock Creative Engine")
-    p.add_argument("--backend", choices=["codex", "demo"], default=None,
-                   help="бекенд LLM (за замовчуванням codex або змінна ENGINE_BACKEND)")
+    p.add_argument("--backend", choices=["openai", "demo"], default=None,
+                   help="бекенд LLM і зображень (за замовчуванням openai або змінна ENGINE_BACKEND)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("ping", help="перевірити зв'язок з моделлю").set_defaults(func=cmd_ping)
@@ -181,6 +188,10 @@ def build_parser():
     s.add_argument("id")
     s.set_defaults(func=cmd_img_list)
 
+    s = sub.add_parser("models", help="перелік моделей OpenAI, доступних вашому ключу")
+    s.add_argument("--filter", help="показати лише ідентифікатори, що містять цей текст")
+    s.set_defaults(func=cmd_models)
+
     sub.add_parser("visuals", help="чи доступні візуальні чернетки").set_defaults(func=cmd_visuals)
     s = sub.add_parser("web", help="локальна вебсторінка")
     s.add_argument("--port", type=int, default=8780)
@@ -192,9 +203,10 @@ def main(argv=None, llm=None, root=None, images=None):
     args = build_parser().parse_args(argv)
     root = Path(root) if root else DEFAULT_ROOT
     try:
-        backend = None if args.func is cmd_visuals else (llm or get_backend(args.backend))
+        envfile.load_dotenv(root / ".env", allowed=envfile.ENGINE_VARS)
+        backend = None if args.func in (cmd_visuals, cmd_models) else (llm or get_backend(args.backend))
         provider = images if images is not None else visuals.get_provider(
-            args.backend or os.environ.get("ENGINE_BACKEND") or "codex")
+            args.backend or os.environ.get("ENGINE_BACKEND") or "openai")
         args.func(args, Engine(root, backend, images=provider))
         return 0
     except (LLMError, LibraryError, OSError, ValueError) as exc:

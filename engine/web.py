@@ -27,7 +27,7 @@ ROUTES = {
 
 def make_server(engine, port=8780):
     token = secrets.token_urlsafe(24)
-    busy = threading.Lock()  # one model request at a time, like the Codex backend requires
+    busy = threading.Lock()  # text requests run one at a time (текстові запити по одному)
     html = PAGE.read_text(encoding="utf-8").replace("__TOKEN__", token)
 
     class Handler(BaseHTTPRequestHandler):
