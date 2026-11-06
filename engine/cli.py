@@ -192,9 +192,9 @@ def main(argv=None, llm=None, root=None, images=None):
     args = build_parser().parse_args(argv)
     root = Path(root) if root else DEFAULT_ROOT
     try:
+        backend = None if args.func is cmd_visuals else (llm or get_backend(args.backend))
         provider = images if images is not None else visuals.get_provider(
             args.backend or os.environ.get("ENGINE_BACKEND") or "codex")
-        backend = None if args.func is cmd_visuals else (llm or get_backend(args.backend))
         args.func(args, Engine(root, backend, images=provider))
         return 0
     except (LLMError, LibraryError, OSError, ValueError) as exc:

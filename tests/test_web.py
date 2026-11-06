@@ -216,7 +216,7 @@ class WebTests(HttpMixin, unittest.TestCase):
         self.engine.variants = boom
         status, text = self.request("POST", "/api/variants", {"id": "o001", "instruction": "x"}, self.auth)
         self.assertEqual(status, 400)
-        self.assertIn("disk full", json.loads(text)["error"])
+        self.assertEqual(json.loads(text)["error"], "Помилка файлової системи")
         status, _ = self.request("POST", "/api/status", {"id": "o001", "status": "testing"}, self.auth)
         self.assertEqual(status, 200)
 
@@ -282,6 +282,22 @@ class ImageWebTests(HttpMixin, unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(ctype, "image/png")
         self.assertTrue(body.startswith(PNG_MAGIC))
+
+    def test_oserror_message_is_not_leaked(self):
+        self.images.fail = OSError("/secret/path/x")
+        status, text = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1},
+                                    {"X-Token": self.server.token})
+        self.assertEqual(status, 400)
+        self.assertNotIn("/secret/path", text)
+        self.assertEqual(json.loads(text)["error"], "Помилка файлової системи")
+        self.images.fail = None
+        status, _ = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1},
+                                 {"X-Token": self.server.token})
+        self.assertEqual(status, 200)
+
+    def test_seven_digit_shot_route_is_not_served(self):
+        status, _, _ = self.request_raw("GET", "/api/image/o001/shot-1234567.png", headers={"X-Token": self.server.token})
+        self.assertEqual(status, 404)
 
     def test_png_without_or_with_wrong_token_is_forbidden(self):
         self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1}, {"X-Token": self.server.token})

@@ -100,6 +100,28 @@ def _thread_id(stdout):
     return None
 
 
+def _last_error(stdout):
+    """The last error message Codex reported as a JSONL event (`error` or `turn.failed`), or None."""
+    found = None
+    for line in (stdout or "").splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "error":
+            message = event.get("message")
+        elif event.get("type") == "turn.failed":
+            error = event.get("error")
+            message = error.get("message") if isinstance(error, dict) else None
+        else:
+            continue
+        if isinstance(message, str) and message.strip():
+            found = message.strip()
+    return found
+
+
 class CodexImageProvider:
     kind = "image"
     name = "codex"
@@ -149,7 +171,7 @@ class CodexImageProvider:
             except OSError as exc:
                 raise LLMError(f"Не вдалося запустити Codex ({self.binary}): {exc}")
             if res.returncode != 0:
-                tail = (res.stderr or res.stdout or "").strip()[-300:]
+                tail = _last_error(res.stdout) or (res.stderr or res.stdout or "").strip()[-300:]
                 raise LLMError(f"Codex завершився з помилкою: {tail}")
         thread_id = _thread_id(res.stdout)
         if not thread_id or not re.fullmatch(r"[A-Za-z0-9-]+", thread_id):
@@ -157,9 +179,14 @@ class CodexImageProvider:
         folder = self.codex_home / "generated_images" / thread_id
         found = sorted(folder.glob("*.png"), key=lambda p: p.stat().st_mtime) if folder.is_dir() else []
         if not found:
-            raise LLMError(
-                "Codex не створив зображення (перевірте, що функція image_generation увімкнена: `codex features list`)."
+            message = (
+                f"Codex не створив зображення (шукав у {folder}). Можливо, вичерпано ліміт підписки, "
+                "Codex змінив місце збереження або вимкнено image_generation (`codex features list`)."
             )
+            reported = _last_error(res.stdout)
+            if reported:
+                message += f" Codex повідомив: {reported}"
+            raise LLMError(message)
         return _atomic_copy(found[-1], dest)
 
 

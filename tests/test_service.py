@@ -187,6 +187,13 @@ class ImageTests(unittest.TestCase):
         with self.assertRaises(LibraryError):
             self.engine.image({"kind": "video", "id": "o001"})
 
+    def test_image_index_is_validated_not_coerced(self):
+        for bad in (True, 1.9, "2"):
+            with self.assertRaises(LibraryError, msg=repr(bad)) as ctx:
+                self.engine.image({"kind": "shot", "id": "o001", "index": bad})
+            self.assertIn("Немає кадру", str(ctx.exception))
+        self.assertEqual(self.fake.prompts, [])
+
     def test_unknown_original(self):
         with self.assertRaises(LibraryError):
             self.engine.shot_image("o404", 1)

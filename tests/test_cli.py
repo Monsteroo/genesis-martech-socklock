@@ -135,6 +135,13 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn(f"Порт {port} зайнятий. Вкажіть інший: --port N.", err)
 
+    def test_bad_engine_backend_gives_the_backend_message(self):
+        from unittest import mock
+        with mock.patch.dict("os.environ", {"ENGINE_BACKEND": "bogus"}):
+            code, _, err = run(["library", "list"], root=self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("Невідомий бекенд", err)
+
     def test_default_web_port_is_8780(self):
         self.assertEqual(cli.build_parser().parse_args(["web"]).port, 8780)
 

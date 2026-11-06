@@ -14,7 +14,7 @@ ORIGINAL = {"pain": "Lost socks"}
 
 
 def make_runner(codex_home, thread_id="th-1", login_text="Logged in using ChatGPT",
-                features="image_generation   stable   true\n", make_image=True, exec_rc=0):
+                features="image_generation   stable   true\n", make_image=True, exec_rc=0, events=()):
     calls = []
 
     def runner(args, env, timeout, cwd):
@@ -28,6 +28,8 @@ def make_runner(codex_home, thread_id="th-1", login_text="Logged in using ChatGP
             folder.mkdir(parents=True, exist_ok=True)
             (folder / "exec-1.png").write_bytes(PNG_MAGIC + b"image")
         out = json.dumps({"type": "thread.started", "thread_id": thread_id})
+        for event in events:
+            out += "\n" + json.dumps(event)
         return SimpleNamespace(returncode=exec_rc, stdout=out + "\n", stderr="boom" if exec_rc else "")
 
     return runner, calls
@@ -157,6 +159,37 @@ class CodexImageProviderTests(unittest.TestCase):
             p.generate("a scene", self.dest)
         self.assertIn("image_generation", str(ctx.exception))
         self.assertFalse(self.dest.exists())
+
+    def test_error_event_message_is_shown_on_nonzero_exit(self):
+        p, _ = self.provider(exec_rc=1, events=[{"type": "error", "message": "usage limit reached"}])
+        with self.assertRaises(llm.LLMError) as ctx:
+            p.generate("a scene", self.dest)
+        self.assertIn("usage limit reached", str(ctx.exception))
+        self.assertNotIn("boom", str(ctx.exception))
+
+    def test_turn_failed_event_message_is_used_and_the_last_one_wins(self):
+        events = [{"type": "error", "message": "first"},
+                  {"type": "turn.failed", "error": {"message": "second failure"}}]
+        p, _ = self.provider(exec_rc=1, events=events)
+        with self.assertRaises(llm.LLMError) as ctx:
+            p.generate("a scene", self.dest)
+        self.assertIn("second failure", str(ctx.exception))
+        self.assertNotIn("first", str(ctx.exception))
+
+    def test_no_image_with_error_event_shows_hint_and_event(self):
+        p, _ = self.provider(make_image=False, events=[{"type": "error", "message": "quota exhausted"}])
+        with self.assertRaises(llm.LLMError) as ctx:
+            p.generate("a scene", self.dest)
+        text = str(ctx.exception)
+        self.assertIn("generated_images", text)
+        self.assertIn("th-1", text)
+        self.assertIn("вичерпано ліміт підписки", text)
+        self.assertIn("image_generation", text)
+        self.assertIn("quota exhausted", text)
+
+    def test_last_error_ignores_noise(self):
+        self.assertIsNone(visuals._last_error("not json\n[1]\n" + json.dumps({"type": "error", "message": 5})))
+        self.assertIsNone(visuals._last_error(None))
 
     def test_hostile_thread_id_is_rejected(self):
         p, _ = self.provider(thread_id="../../etc")

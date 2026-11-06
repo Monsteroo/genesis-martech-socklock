@@ -126,7 +126,7 @@ class Engine:
     def image(self, body):
         kind = body.get("kind")
         if kind == "shot":
-            return self.shot_image(body["id"], int(body["index"]))
+            return self.shot_image(body["id"], body["index"])
         if kind == "variant":
             return self.variant_image(body["id"], body["variant"])
         raise LibraryError("kind має бути shot або variant.")

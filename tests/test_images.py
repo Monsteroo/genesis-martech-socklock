@@ -19,6 +19,14 @@ class KeyTests(unittest.TestCase):
             images.shot_key(0)
 
 
+    def test_shot_key_rejects_bool_and_huge_numbers_are_not_valid_keys(self):
+        with self.assertRaises(LibraryError):
+            images.shot_key(True)
+        with self.assertRaises(LibraryError):
+            images.check("o001", "shot-1234567")
+        images.check("o001", "shot-123456")
+
+
 class StoreTests(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
@@ -33,6 +41,20 @@ class StoreTests(unittest.TestCase):
                          ("o001", "variant-ZZZZZZZZ"), ("o001", "shot-1.png"), (None, "shot-1")]:
             with self.assertRaises(LibraryError, msg=(oid, key)):
                 self.store.path(oid, key)
+
+    def test_unicode_digits_rejected(self):
+        arabic = chr(0x661)
+        for oid, key in [("o" + arabic * 3, "shot-1"), ("o001", "shot-" + arabic), ("o001", "shot-1234567")]:
+            with self.assertRaises(LibraryError, msg=(oid, key)):
+                self.store.path(oid, key)
+
+    def test_keys_sorted_naturally(self):
+        folder = self.root / "o001"
+        folder.mkdir()
+        for name in ("shot-10.png", "shot-2.png", "variant-0a1b2c3d.png", "shot-1.png", "variant-00000000.png"):
+            (folder / name).write_bytes(b"x")
+        self.assertEqual(self.store.keys("o001"),
+                         ["shot-1", "shot-2", "shot-10", "variant-00000000", "variant-0a1b2c3d"])
 
     def test_keys_lists_existing_valid_files_sorted(self):
         folder = self.root / "o001"

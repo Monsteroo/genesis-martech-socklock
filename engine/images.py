@@ -4,8 +4,8 @@ from pathlib import Path
 
 from engine.library import LibraryError
 
-_ID = re.compile(r"o\d{3}")
-_KEY = re.compile(r"shot-\d+|variant-[0-9a-f]{8}")
+_ID = re.compile(r"o[0-9]{3}")
+_KEY = re.compile(r"shot-[0-9]{1,6}|variant-[0-9a-f]{8}")
 
 
 def variant_key(hook):
@@ -13,7 +13,7 @@ def variant_key(hook):
 
 
 def shot_key(n):
-    if not isinstance(n, int) or n < 1:
+    if not isinstance(n, int) or isinstance(n, bool) or n < 1:
         raise LibraryError(f"Некоректний номер кадру: {n!r}")
     return f"shot-{n}"
 
@@ -43,4 +43,5 @@ class ImageStore:
         folder = self.root / original_id
         if not folder.is_dir():
             return []
-        return sorted(p.stem for p in folder.glob("*.png") if _KEY.fullmatch(p.stem))
+        stems = [p.stem for p in folder.glob("*.png") if _KEY.fullmatch(p.stem)]
+        return sorted(stems, key=lambda k: (0, int(k[5:]), "") if k.startswith("shot-") else (1, 0, k))

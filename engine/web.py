@@ -11,7 +11,7 @@ from engine.llm import LLMError
 
 PAGE = Path(__file__).resolve().parent.parent / "web" / "index.html"
 MAX_BODY = 100_000
-IMAGE_ROUTE = re.compile(r"/api/image/(o[0-9]{3})/((?:shot-[0-9]+|variant-[0-9a-f]{8}))\.png")
+IMAGE_ROUTE = re.compile(r"/api/image/(o[0-9]{3})/((?:shot-[0-9]{1,6}|variant-[0-9a-f]{8}))\.png")
 
 ROUTES = {
     "/api/pains": lambda e, b: e.pains(b["text"]),
@@ -126,7 +126,9 @@ def make_server(engine, port=8780):
                 return self._json(409, {"ok": False, "error": "Інший запит ще виконується."})
             try:
                 self._json(200, {"ok": True, "data": route(engine, body)})
-            except (LLMError, LibraryError, KeyError, ValueError, TypeError, OSError) as exc:
+            except OSError:  # never echo str(exc): it can hold file paths
+                self._json(400, {"ok": False, "error": "Помилка файлової системи"})
+            except (LLMError, LibraryError, KeyError, ValueError, TypeError) as exc:
                 self._json(400, {"ok": False, "error": str(exc)})
             except Exception:  # a bug must not kill the connection silently or hold the busy lock
                 self._json(500, {"ok": False, "error": "Внутрішня помилка сервера"})
