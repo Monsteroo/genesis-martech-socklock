@@ -11,26 +11,30 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,sans-serif}
 main{max-width:1100px;margin:0 auto;padding:16px 16px calc(120px + env(safe-area-inset-bottom))}
-header{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:12px}
-h1{font-size:22px;margin:0}
-a{color:var(--acc)}
+h1{font-size:22px;margin:0 0 12px}
+h2{font-size:17px;margin:22px 0 8px;display:flex;align-items:baseline;gap:10px}
 #banner{background:#fff3cd;color:#5c4400;border:1px solid #ecd38a;border-radius:10px;padding:12px 14px;margin:0 0 12px}
 #banner p{margin:0 0 6px}
 #banner details{font-size:14px}
 @media (prefers-color-scheme:dark){#banner{background:#3a3120;color:#f2dc9d;border-color:#6b5a2a}}
-textarea{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);resize:vertical;min-height:84px}
-textarea:focus,button:focus-visible,.pickbox:focus-within{outline:2px solid var(--acc);outline-offset:2px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.tabs button{border:0;border-bottom:3px solid transparent;background:none;color:var(--mut);font:inherit;font-weight:600;font-size:17px;padding:10px 14px;margin-bottom:-1px;cursor:pointer;min-height:44px}
+.tabs button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--acc)}
+.count{display:inline-block;min-width:22px;padding:0 7px;margin-left:6px;border-radius:999px;background:var(--line);color:var(--fg);font-size:13px;font-weight:600;text-align:center}
+textarea,input[type="text"]{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg)}
+textarea{resize:vertical;min-height:84px}
+textarea:focus,input:focus,button:focus-visible,.pickbox:focus-within,[role="tab"]:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0}
 .lbl{color:var(--mut);min-width:64px;font-size:14px}
 .seg{display:flex;flex-wrap:wrap;gap:6px}
 .seg button{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:6px 14px;font:inherit;font-size:14px;cursor:pointer}
 .seg button[aria-pressed="true"]{background:var(--acc);color:var(--acc-fg);border-color:var(--acc)}
-#go{background:var(--acc);color:var(--acc-fg);border:0;border-radius:12px;padding:12px 28px;font:inherit;font-weight:600;font-size:17px;cursor:pointer}
+.go{background:var(--acc);color:var(--acc-fg);border:0;border-radius:12px;padding:12px 28px;font:inherit;font-weight:600;font-size:17px;cursor:pointer}
 [aria-disabled="true"]{opacity:.5;cursor:not-allowed}
 .mut{color:var(--mut);font-size:14px}
 .small{font-size:13px}
-#examples button{background:none;border:0;color:var(--acc);text-decoration:underline;font:inherit;font-size:14px;padding:2px 4px;margin-right:6px;cursor:pointer}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;margin-top:18px}
+.links button{background:none;border:0;color:var(--acc);text-decoration:underline;font:inherit;font-size:14px;padding:2px 4px;margin-right:6px;cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;margin-top:14px}
 @media (min-width:600px){.grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}}
 .tile{position:relative;border:1px solid var(--line);border-radius:14px;background:var(--card);padding:8px;display:flex;flex-direction:column;gap:8px}
 .tile.sel{border-color:var(--sel);box-shadow:0 0 0 2px var(--sel)}
@@ -48,39 +52,80 @@ textarea:focus,button:focus-visible,.pickbox:focus-within{outline:2px solid var(
 .spin{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:s 1s linear infinite}
 @keyframes s{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spin{animation:none}}
-#more{display:block;margin:18px auto 0;border:1px solid var(--edge);background:var(--card);color:var(--fg);border-radius:10px;padding:8px 20px;font:inherit;cursor:pointer}
+.more{display:block;margin:18px auto 0;border:1px solid var(--edge);background:var(--card);color:var(--fg);border-radius:10px;padding:8px 20px;font:inherit;cursor:pointer}
 .bar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom));display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;z-index:5}
-.bar button{border:1px solid var(--edge);background:var(--card);color:var(--fg);border-radius:10px;padding:8px 16px;font:inherit;cursor:pointer}
+.bar button,.plain{border:1px solid var(--edge);background:var(--card);color:var(--fg);border-radius:10px;padding:8px 16px;font:inherit;cursor:pointer}
 .bar button.main{background:var(--acc);color:var(--acc-fg);border-color:var(--acc)}
 #barmsg{color:var(--bad);font-size:14px;flex-basis:100%;text-align:center}
+.strip{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 10px}
+.strip .tile{flex:0 0 112px;padding:6px}
+.tile.chooser .body{min-height:112px}
+.tile.chooser .thumb{height:112px;object-fit:cover}
+.tile.chooser .imgbtn{cursor:pointer}
+.tile.chooser .body.msg{padding-top:34px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.chips button{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:5px 12px;font:inherit;font-size:14px;cursor:pointer}
+.group{margin-top:26px}
+.ghead{display:flex;align-items:center;gap:12px}
+.gthumb{flex:0 0 56px;width:56px;height:56px;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--card);display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:11px;text-align:center}
+.gthumb img{width:100%;height:100%;object-fit:cover;display:block}
+.clip{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 [hidden]{display:none!important}
 </style>
 </head>
 <body>
 <main>
-  <header>
-    <h1>Генератор зображень</h1>
-    <a href="/workflow">Сценарії →</a>
-  </header>
+  <h1>Генератор зображень</h1>
   <div id="banner" hidden></div>
 
-  <textarea id="prompt" aria-label="Опис зображення" placeholder="Опишіть, що потрібно. Наприклад: смугасті шкарпетки на дерев'яній підлозі, м'яке світло"></textarea>
-  <div id="examples" class="mut">Приклади:
-    <button type="button" data-t="Смугасті шкарпетки на дерев'яній підлозі, м'яке світло">шкарпетки на підлозі</button>
-    <button type="button" data-t="Дівчина в кафе тримає чашку кави, природне світло з вікна">кава в кафе</button>
-    <button type="button" data-t="Яскравий пакет еко-кави на білому тлі">пакет кави</button>
+  <div class="tabs" role="tablist" aria-label="Розділи">
+    <button type="button" role="tab" id="tab-originals" aria-controls="p-originals">Оригінали<span class="count" id="c-originals">0</span></button>
+    <button type="button" role="tab" id="tab-modifications" aria-controls="p-modifications">Модифікації<span class="count" id="c-modifications">0</span></button>
   </div>
-  <div class="row"><span class="lbl">Скільки</span><div class="seg" id="count" role="group" aria-label="Скільки зображень"></div></div>
-  <div class="row"><span class="lbl">Формат</span><div class="seg" id="format" role="group" aria-label="Формат"></div></div>
-  <div class="row"><span class="lbl">Стиль</span><div class="seg" id="style" role="group" aria-label="Стиль"></div></div>
-  <div class="row"><button id="go" type="button" aria-disabled="true">Згенерувати</button><span id="hint" class="mut"></span></div>
-  <div class="mut small">Ctrl+Enter — швидкий запуск</div>
-  <div id="msg" class="mut" role="status" aria-live="polite"></div>
-  <div id="note" class="mut" role="status" aria-live="polite"></div>
 
-  <div id="empty" class="mut" hidden>Тут з'являться ваші зображення. Опишіть ідею й натисніть «Згенерувати».</div>
-  <section id="grid" class="grid"></section>
-  <button id="more" type="button" hidden>Показати ще</button>
+  <section id="p-originals" role="tabpanel" aria-labelledby="tab-originals">
+    <textarea id="prompt" aria-label="Опис зображення" placeholder="Опишіть, що потрібно. Наприклад: смугасті шкарпетки на дерев'яній підлозі, м'яке світло"></textarea>
+    <div id="examples" class="mut links">Приклади:
+      <button type="button" data-t="Смугасті шкарпетки на дерев'яній підлозі, м'яке світло">шкарпетки на підлозі</button>
+      <button type="button" data-t="Дівчина в кафе тримає чашку кави, природне світло з вікна">кава в кафе</button>
+      <button type="button" data-t="Яскравий пакет еко-кави на білому тлі">пакет кави</button>
+    </div>
+    <div class="row"><span class="lbl">Скільки</span><div class="seg" id="count" role="group" aria-label="Скільки зображень"></div></div>
+    <div class="row"><span class="lbl">Формат</span><div class="seg" id="format" role="group" aria-label="Формат"></div></div>
+    <div class="row"><span class="lbl">Стиль</span><div class="seg" id="style" role="group" aria-label="Стиль"></div></div>
+    <div class="row"><button id="go" class="go" type="button" aria-disabled="true">Згенерувати</button><span id="hint" class="mut"></span></div>
+    <div class="mut small">Ctrl+Enter — швидкий запуск</div>
+    <div id="msg" class="mut" role="status" aria-live="polite"></div>
+    <div id="note" class="mut" role="status" aria-live="polite"></div>
+
+    <div id="empty" class="mut" hidden>Тут з'являться ваші зображення. Опишіть ідею й натисніть «Згенерувати».</div>
+    <section id="grid" class="grid" aria-label="Оригінали"></section>
+    <button id="more" class="more" type="button" hidden>Показати ще</button>
+  </section>
+
+  <section id="p-modifications" role="tabpanel" aria-labelledby="tab-modifications" hidden>
+    <h2>1. Оберіть оригінали <span id="schosen" class="mut"></span></h2>
+    <div id="noorig" class="mut" hidden>
+      <p>Спершу створіть оригінали у вкладці «Оригінали».</p>
+      <button type="button" class="plain" id="toorig">До оригіналів</button>
+    </div>
+    <div id="modform">
+      <div id="strip" class="strip" role="group" aria-label="Оригінали для зміни"></div>
+      <button id="smore" class="more" type="button" hidden>Показати ще</button>
+
+      <h2>2. Що змінити? <span class="mut">(необов'язково)</span></h2>
+      <input type="text" id="change" maxlength="300" aria-label="Що змінити" placeholder="Наприклад: вечірнє світло, інший фон, ближчий план">
+      <div id="chips" class="chips" role="group" aria-label="Швидкі підказки"></div>
+      <div class="row"><span class="lbl">На кожен оригінал</span><div class="seg" id="mcount" role="group" aria-label="Скільки на кожен оригінал"></div></div>
+      <div class="row"><button id="mgo" class="go" type="button" aria-disabled="true">Створити модифікації</button><span id="mhint" class="mut"></span></div>
+      <div id="mmsg" class="mut" role="status" aria-live="polite"></div>
+    </div>
+    <div id="mnote" class="mut" role="status" aria-live="polite"></div>
+
+    <div id="mempty" class="mut" hidden>Тут з'являться змінені версії. Оберіть оригінали вище й натисніть «Створити модифікації».</div>
+    <div id="groups"></div>
+    <button id="gmore" class="more" type="button" hidden>Показати ще</button>
+  </section>
 </main>
 
 <div id="bar" class="bar" hidden>
@@ -96,8 +141,11 @@ const TOKEN = "__TOKEN__";
 const TIMEOUT = { api: 60000, gen: 180000, blob: 60000 };
 const SLOW = "Сервер довго не відповідає. Спробуйте ще раз.";
 const STALE = "Сторінка застаріла. Оновіть її (F5).";
-const PAGE = 24;
 const AMBIGUOUS = "Зображення могло вже створитися. Оновіть сторінку й перегляньте галерею.";
+const PAGE = 24;        // originals per page
+const GROUP_PAGE = 8;   // modifications per page inside one group
+const GROUPS_PAGE = 5;  // groups per page
+const CHIPS = ["інше світло", "інший ракурс", "інший фон", "інші кольори", "ближче", "ширше"];
 
 const $ = (id) => document.getElementById(id);
 const h = (tag, props, ...kids) => {
@@ -190,8 +238,22 @@ function guarded(btn, fn) {
   });
 }
 
+// A start button is disabled while ANY of its named locks is on.
+function makeGate(btn, locks) {
+  const apply = () => setBusy(btn, Object.values(locks).some(Boolean));
+  apply();
+  return (name, on) => { locks[name] = on; apply(); };
+}
+const lockGen = makeGate($("go"), { startup: true, key: false, cool: false });
+const lockMod = makeGate($("mgo"), { startup: true, key: false, cool: false, none: true });
+
+function coolDown(lock) {
+  lock("cool", true);
+  setTimeout(() => lock("cool", false), 1500);
+}
+
 /* ---------- options ---------- */
-const state = { count: 4, format: "vertical", style: "" };
+const state = { count: 4, format: "vertical", style: "", mcount: 2 };
 
 function segmented(id, key, options, onChange) {
   const buttons = options.map(([value, label]) => {
@@ -206,39 +268,108 @@ function segmented(id, key, options, onChange) {
   refresh();
 }
 
+const costText = (n) => CONFIG.price_usd
+  ? "≈ $" + (CONFIG.price_usd * n).toFixed(2)
+  : "Ціна залежить від вашого тарифу OpenAI.";
+
 function updateLabels() {
   $("go").textContent = "Згенерувати " + state.count;
-  $("hint").textContent = CONFIG.price_usd
-    ? "≈ $" + (CONFIG.price_usd * state.count).toFixed(2)
-    : "Ціна залежить від вашого тарифу OpenAI.";
+  $("hint").textContent = costText(state.count);
+  const n = chosen().length;
+  $("mgo").textContent = "Створити модифікації" + (n ? " " + n * state.mcount : "");
+  $("mhint").textContent = n ? costText(n * state.mcount) : "Виберіть хоча б один оригінал.";
+  $("schosen").textContent = n ? "Вибрано: " + n : "";
+  lockMod("none", n === 0);
 }
 
 segmented("count", "count", [[1, "1"], [2, "2"], [4, "4"], [6, "6"]], updateLabels);
 segmented("format", "format", [["vertical", "Вертикальне"], ["square", "Квадрат"], ["wide", "Горизонтальне"]]);
 segmented("style", "style", [["", "Без стилю"], ["product", "Фото продукту"], ["lifestyle", "Життя"],
   ["illustration", "Ілюстрація"], ["minimal", "Мінімалізм"]]);
+segmented("mcount", "mcount", [[1, "1"], [2, "2"], [4, "4"]], updateLabels);
 
 for (const b of document.querySelectorAll("#examples button")) {
   b.addEventListener("click", () => { $("prompt").value = b.dataset.t; $("prompt").focus(); });
 }
 
-/* ---------- tiles ---------- */
-const tiles = new Set();
-let galleryReady = false;
-
-function updateChrome() {
-  const n = [...tiles].filter((t) => t.picked()).length;
-  $("bar").hidden = n === 0;
-  $("n").textContent = n;
-  $("empty").hidden = tiles.size > 0 || !galleryReady;
+// A chip appends its words to the change text, once.
+for (const text of CHIPS) {
+  const b = h("button", { type: "button" }, text);
+  b.addEventListener("click", () => {
+    const parts = $("change").value.split(",").map((s) => s.trim()).filter(Boolean);
+    if (parts.includes(text)) return;
+    const joined = [...parts, text].join(", ");
+    if (joined.length <= $("change").maxLength) $("change").value = joined;
+  });
+  $("chips").append(b);
 }
 
-// opts: { payload } to generate, or { meta } for an image that already exists.
+/* ---------- data and tabs ---------- */
+const store = { originals: [], mods: [] };   // metadata, newest first: the source of the counters
+let ready = false;
+let active = "originals";
+const tiles = new Set();
+
+const TAB_OF = { original: "originals", modification: "modifications" };
+const chosen = () => [...tiles].filter((t) => t.role === "chooser" && t.picked());
+const barPicked = () => [...tiles].filter((t) => t.tab === active && t.picked());
+
+function updateChrome() {
+  const n = barPicked().length;
+  $("bar").hidden = n === 0;
+  $("n").textContent = n;
+  $("c-originals").textContent = store.originals.length;
+  $("c-modifications").textContent = store.mods.length;
+  $("empty").hidden = !ready || store.originals.length > 0 || [...tiles].some((t) => t.tab === "originals");
+  $("noorig").hidden = !ready || store.originals.length > 0;
+  $("modform").hidden = !ready || store.originals.length === 0;
+  $("mempty").hidden = !ready || groups.size > 0 || store.originals.length === 0;
+  updateLabels();
+}
+
+function clearPicks() {
+  for (const t of tiles) if (t.pickEl) t.setPicked(false);
+  barNote();
+  updateChrome();
+}
+
+function showTab(name, pickId) {
+  active = name;
+  for (const id of ["originals", "modifications"]) {
+    const on = id === name;
+    $("tab-" + id).setAttribute("aria-selected", String(on));
+    $("tab-" + id).tabIndex = on ? 0 : -1;
+    $("p-" + id).hidden = !on;
+  }
+  history.replaceState(null, "", "#" + name);
+  clearPicks();
+  if (pickId) pickOriginal(pickId);
+}
+
+for (const id of ["originals", "modifications"]) {
+  $("tab-" + id).addEventListener("click", () => showTab(id));
+  $("tab-" + id).addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const other = id === "originals" ? "modifications" : "originals";
+    showTab(other);
+    $("tab-" + other).focus();
+  });
+}
+$("toorig").addEventListener("click", () => { showTab("originals"); $("prompt").focus(); });
+addEventListener("hashchange", () => {
+  const name = location.hash === "#modifications" ? "modifications" : "originals";
+  if (name !== active) showTab(name);
+});
+
+/* ---------- tiles: one component for originals, modifications and the chooser strip ---------- */
+// opts: role ("original" | "modification" | "chooser"), meta (existing image) or payload+route (to generate),
+// group (modification tiles), onFresh(meta) once a new image exists.
 function makeTile(opts) {
+  const role = opts.role;
   const body = h("div", { className: "body" });
-  const el = h("div", { className: "tile" }, body);
-  const tile = { el, meta: opts.meta || null, blob: null, url: null, timer: null, dead: false,
-    pickEl: null, picked: () => false };
+  const el = h("div", { className: "tile" + (role === "chooser" ? " chooser" : "") }, body);
+  const tile = { el, role, tab: TAB_OF[role] || "", meta: opts.meta || null, blob: null, url: null, timer: null,
+    dead: false, pickEl: null, group: opts.group || null, picked: () => false, setPicked: () => {} };
 
   const stopTimer = () => { clearInterval(tile.timer); tile.timer = null; };
   const spinner = (text) => { body.className = "body"; body.replaceChildren(h("div", { className: "spin" }), h("div", { className: "mut" }, text)); };
@@ -275,12 +406,27 @@ function makeTile(opts) {
   tile.addPick = () => {
     if (tile.pickEl) return;
     const box = h("input", { type: "checkbox", className: "pick" });
-    box.setAttribute("aria-label", "Вибрати зображення");
+    box.setAttribute("aria-label", role === "chooser" ? "Вибрати оригінал" : "Вибрати зображення");
     box.addEventListener("change", () => { el.classList.toggle("sel", box.checked); barNote(); updateChrome(); });
     tile.pickEl = box;
     tile.picked = () => box.checked;
+    tile.setPicked = (on) => { box.checked = on; el.classList.toggle("sel", on); };
     el.prepend(h("label", { className: "pickbox" }, box));
   };
+
+  function actions() {
+    const dl = h("button", { type: "button" }, "Завантажити");
+    dl.addEventListener("click", () => save(tile.blob, tile.meta.id + ".png"));
+    const extra = h("button", { type: "button" }, role === "original" ? "Змінити →" : "Ще 4 такі ж");
+    extra.addEventListener("click", () => {
+      if (role === "original") return showTab("modifications", tile.meta.id);
+      extra.disabled = true;
+      setTimeout(() => { extra.disabled = false; }, 1500);
+      const { parent, change } = tile.meta;
+      generateMods([0, 1, 2, 3].map((variation) => ({ parent, change: change || "", variation })));
+    });
+    return h("div", { className: "acts" }, extra, dl);
+  }
 
   tile.show = async () => {
     const meta = tile.meta;
@@ -289,33 +435,31 @@ function makeTile(opts) {
     if (tile.dead) return;
     tile.blob = blob;
     tile.url = URL.createObjectURL(blob);
-    const text = meta.prompt || "Зображення";
+    const text = (role === "modification" && meta.change) || meta.prompt || "Зображення";
     const img = h("img", { className: "thumb", src: tile.url, alt: text, title: text });
     const open = h("button", { type: "button", className: "imgbtn", title: text }, img);
-    open.setAttribute("aria-label", "Відкрити зображення: " + text);
-    open.addEventListener("click", () => window.open(tile.url, "_blank", "noopener"));
+    if (role === "chooser") {   // a click on the picture picks it; the checkbox stays the keyboard control
+      open.tabIndex = -1;
+      open.addEventListener("click", () => { tile.setPicked(!tile.picked()); updateChrome(); });
+    } else {
+      open.setAttribute("aria-label", "Відкрити зображення: " + text);
+      open.addEventListener("click", () => window.open(tile.url, "_blank", "noopener"));
+    }
     stopTimer();
     body.className = "body";
     body.replaceChildren(open);
-    if (!el.querySelector(".acts")) {
-      const more = h("button", { type: "button" }, "Ще 4 схожі");
-      more.addEventListener("click", () => {
-        more.disabled = true;
-        setTimeout(() => { more.disabled = false; }, 1500);
-        generate([0, 1, 2, 3].map((variation) => ({ parent: meta.id, variation })));
-      });
-      const dl = h("button", { type: "button" }, "Завантажити");
-      dl.addEventListener("click", () => save(tile.blob, meta.id + ".png"));
-      el.append(h("div", { className: "acts" }, more, dl));
+    if (role !== "chooser" && !el.querySelector(".acts")) {
+      if (role === "modification" && meta.change) el.append(h("div", { className: "mut small clip" }, meta.change));
+      el.append(actions());
     }
   };
 
-  // Runs inside the global queue. A paid generation is never repeated once we hold its meta.
+  // Runs inside the queue. A paid generation is never repeated once we hold its meta.
   tile.process = async () => {
     if (tile.dead) return;
     tile.running();
     if (!tile.meta) {
-      const res = await apiQuiet("/api/gen", opts.payload, TIMEOUT.gen);
+      const res = await apiQuiet(opts.route, opts.payload, TIMEOUT.gen);
       if (!res.ok) {
         const kind = res.stale ? "stale" : res.ambiguous ? "ambiguous" : undefined;
         const text = res.server ? "Не вийшло: " + res.error : kind === "ambiguous" ? AMBIGUOUS : res.error;
@@ -323,6 +467,7 @@ function makeTile(opts) {
       }
       if (!res.data || typeof res.data.id !== "string") return tile.fail(AMBIGUOUS, "ambiguous");
       tile.meta = res.data;
+      if (opts.onFresh) opts.onFresh(tile.meta);
     }
     try {
       await tile.show();
@@ -344,19 +489,33 @@ function makeTile(opts) {
     if (tile.url) URL.revokeObjectURL(tile.url);
     el.remove();
     tiles.delete(tile);
+    if (tile.group) tile.group.drop(tile);
   };
+
+  if (opts.meta) tile.addPick();
+  tiles.add(tile);
   return tile;
 }
 
-function generate(payloads) {
-  const fresh = payloads.map((payload) => makeTile({ payload }));
-  const frag = document.createDocumentFragment();
-  for (const t of fresh) { tiles.add(t); frag.append(t.el); }
-  $("grid").prepend(frag);
+/* ---------- originals tab ---------- */
+let origRest = [];
+
+function generateOriginals(payloads) {
+  const fresh = payloads.map((payload) => makeTile({ role: "original", payload, route: "/api/gen", onFresh: addOriginal }));
+  $("grid").prepend(...fresh.map((t) => t.el));
   updateChrome();
   fresh.forEach((t) => t.submit());
   if (!reducedMotion()) fresh[0].el.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
+
+function showMoreOriginals() {
+  const batch = origRest.splice(0, PAGE).map((meta) => makeTile({ role: "original", meta }));
+  $("grid").append(...batch.map((t) => t.el));
+  $("more").hidden = origRest.length === 0;
+  updateChrome();
+  batch.forEach((t) => t.submit());
+}
+$("more").addEventListener("click", showMoreOriginals);
 
 function generateFromForm() {
   if (isBusy($("go"))) return;
@@ -367,13 +526,9 @@ function generateFromForm() {
     $("prompt").focus();
     return;
   }
-  locks.cool = true;
-  syncGo();
-  setTimeout(() => { locks.cool = false; syncGo(); }, 1500);
-  generate(Array.from({ length: state.count }, () => ({ prompt: text, format: state.format, style: state.style })));
+  coolDown(lockGen);
+  generateOriginals(Array.from({ length: state.count }, () => ({ prompt: text, format: state.format, style: state.style })));
 }
-const locks = { startup: true, key: false, cool: false };
-const syncGo = () => setBusy($("go"), locks.startup || locks.key || locks.cool);
 
 $("go").addEventListener("click", generateFromForm);
 $("prompt").addEventListener("keydown", (e) => {
@@ -383,25 +538,176 @@ $("prompt").addEventListener("keydown", (e) => {
   }
 });
 
-/* ---------- selection bar ---------- */
-const picked = () => [...tiles].filter((t) => t.picked());
+/* ---------- the strip of originals (modifications, step 1) ---------- */
+const strip = new Map();   // original id -> chooser tile
+let stripRest = [];
+
+function addChooser(meta, toFront) {
+  if (strip.has(meta.id)) return strip.get(meta.id);
+  const t = makeTile({ role: "chooser", meta });
+  strip.set(meta.id, t);
+  if (toFront) $("strip").prepend(t.el); else $("strip").append(t.el);
+  t.submit();
+  return t;
+}
+
+function showMoreStrip() {
+  stripRest.splice(0, PAGE).forEach((meta) => addChooser(meta, false));
+  $("smore").hidden = stripRest.length === 0;
+  updateChrome();
+}
+$("smore").addEventListener("click", showMoreStrip);
+
+function pickOriginal(id) {
+  const meta = store.originals.find((m) => m.id === id);
+  if (!meta) return;
+  stripRest = stripRest.filter((m) => m.id !== id);
+  const t = addChooser(meta, true);
+  t.setPicked(true);
+  updateChrome();
+  t.el.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+// A freshly generated original joins the data and the strip.
+function addOriginal(meta) {
+  store.originals.unshift(meta);
+  addChooser(meta, true);
+  updateChrome();
+}
+
+/* ---------- modification groups (one per original) ---------- */
+const groups = new Map();       // original id -> group
+const pendingGroups = new Map(); // original id -> its saved modifications, not shown yet
+
+// The small picture of the original in a group header; a neutral box if the original is gone.
+function makeThumb(id) {
+  const el = h("div", { className: "gthumb" }, "…");
+  const thumb = { el, url: null, dead: false };
+  thumb.destroy = () => { thumb.dead = true; if (thumb.url) URL.revokeObjectURL(thumb.url); };
+  enqueueGallery(async () => {
+    try {
+      const blob = await getBlob("/api/g/" + id + ".png");
+      if (thumb.dead) return;
+      thumb.url = URL.createObjectURL(blob);
+      el.replaceChildren(h("img", { src: thumb.url, alt: "Оригінал" }));
+    } catch (e) {
+      if (thumb.dead) return;
+      el.title = e && e.status === 404 ? "Оригінал видалено" : "Оригінал не вдалося завантажити";
+      el.replaceChildren(e && e.status === 404 ? "видалено" : "немає");
+    }
+  });
+  return thumb;
+}
+
+function makeGroup(parent, prompt) {
+  const thumb = makeThumb(parent);
+  const grid = h("div", { className: "grid" });
+  const more = h("button", { type: "button", className: "more", hidden: true }, "Показати ще");
+  const head = h("div", { className: "ghead" }, thumb.el,
+    h("div", {}, h("b", {}, "з оригіналу"), h("div", { className: "mut small clip" }, prompt || "")));
+  const el = h("section", { className: "group" }, head, grid, more);
+  el.setAttribute("aria-label", "Модифікації оригіналу");
+  const group = { el, rest: [], members: new Set() };
+
+  group.addFirst = (list) => { list.forEach((t) => group.members.add(t)); grid.prepend(...list.map((t) => t.el)); };
+
+  group.page = () => {
+    const batch = group.rest.splice(0, GROUP_PAGE).map((meta) => makeTile({ role: "modification", meta, group }));
+    for (const t of batch) { group.members.add(t); grid.append(t.el); }
+    more.hidden = group.rest.length === 0;
+    updateChrome();
+    batch.forEach((t) => t.submit());
+  };
+  more.addEventListener("click", group.page);
+
+  group.drop = (t) => {
+    group.members.delete(t);
+    if (group.members.size > 0) return;
+    if (group.rest.length) return group.page();
+    thumb.destroy();
+    el.remove();
+    groups.delete(parent);
+  };
+  return group;
+}
+
+// where: "top" for new work, "bottom" when paging through older groups.
+function groupFor(parent, prompt, where) {
+  let group = groups.get(parent);
+  if (!group) {
+    group = makeGroup(parent, prompt);
+    groups.set(parent, group);
+    if (pendingGroups.has(parent)) {
+      group.rest = pendingGroups.get(parent);
+      pendingGroups.delete(parent);
+      group.page();
+    }
+    $("groups")[where === "top" ? "prepend" : "append"](group.el);
+  } else if (where === "top") {
+    $("groups").prepend(group.el);
+  }
+  return group;
+}
+
+function showMoreGroups() {
+  for (const [parent, metas] of [...pendingGroups].slice(0, GROUPS_PAGE)) groupFor(parent, metas[0].prompt, "bottom");
+  $("gmore").hidden = pendingGroups.size === 0;
+  updateChrome();
+}
+$("gmore").addEventListener("click", showMoreGroups);
+
+/* ---------- modifications: start ---------- */
+function generateMods(payloads) {
+  const byParent = new Map();
+  for (const p of payloads) byParent.set(p.parent, [...(byParent.get(p.parent) || []), p]);
+  const fresh = [];
+  // Walk backwards so the first selected original ends up as the top group.
+  for (const [parent, list] of [...byParent].reverse()) {
+    const meta = store.originals.find((m) => m.id === parent) || store.mods.find((m) => m.parent === parent);
+    const group = groupFor(parent, meta && meta.prompt, "top");
+    const made = list.map((payload) => makeTile({ role: "modification", payload, route: "/api/modify", group,
+      onFresh: (m) => { store.mods.unshift(m); updateChrome(); } }));
+    group.addFirst(made);
+    fresh.unshift(...made);
+  }
+  updateChrome();
+  fresh.forEach((t) => t.submit());
+  if (fresh.length && !reducedMotion()) fresh[0].el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function generateModsFromForm() {
+  if (isBusy($("mgo"))) return;
+  $("mmsg").textContent = "";
+  const picks = chosen();
+  if (!picks.length) return;
+  const change = $("change").value.trim();
+  coolDown(lockMod);
+  const payloads = [];
+  for (const t of picks) {
+    for (let variation = 0; variation < state.mcount; variation++) payloads.push({ parent: t.meta.id, change, variation });
+  }
+  generateMods(payloads);
+}
+
+$("mgo").addEventListener("click", generateModsFromForm);
+$("change").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.repeat) { e.preventDefault(); generateModsFromForm(); }
+});
+
+/* ---------- selection bar (works on the active tab) ---------- */
 const barNote = (text) => { $("barmsg").textContent = text || ""; };
 
-$("clear").addEventListener("click", () => {
-  barNote();
-  for (const t of picked()) { t.pickEl.checked = false; t.el.classList.remove("sel"); }
-  updateChrome();
-});
+$("clear").addEventListener("click", clearPicks);
 
 guarded($("dl"), async () => {
   barNote();
-  const chosen = picked();
+  const picked = barPicked();
   try {
-    if (chosen.length === 1) {
-      const t = chosen[0];
+    if (picked.length === 1) {
+      const t = picked[0];
       save(t.blob || await getBlob("/api/g/" + t.meta.id + ".png"), t.meta.id + ".png");
     } else {
-      const ids = chosen.map((t) => encodeURIComponent(t.meta.id)).join(",");
+      const ids = picked.map((t) => encodeURIComponent(t.meta.id)).join(",");
       save(await getBlob("/api/gallery/zip?ids=" + ids, "application/zip"), "images.zip");
     }
   } catch (e) {
@@ -409,53 +715,75 @@ guarded($("dl"), async () => {
   }
 });
 
+function forget(ids) {
+  const gone = new Set(ids);
+  store.originals = store.originals.filter((m) => !gone.has(m.id));
+  store.mods = store.mods.filter((m) => !gone.has(m.id));
+  origRest = origRest.filter((m) => !gone.has(m.id));
+  stripRest = stripRest.filter((m) => !gone.has(m.id));
+  for (const id of gone) {
+    if (strip.has(id)) { strip.get(id).remove(); strip.delete(id); }
+  }
+}
+
 guarded($("del"), async () => {
   barNote();
-  const chosen = picked();
-  if (!confirm("Видалити вибране (" + chosen.length + ") назавжди?")) return;
-  const res = await apiQuiet("/api/gallery/delete", { ids: chosen.map((t) => t.meta.id) });
+  const picked = barPicked();
+  if (!confirm("Видалити вибране (" + picked.length + ") назавжди?")) return;
+  const ids = picked.map((t) => t.meta.id);
+  const res = await apiQuiet("/api/gallery/delete", { ids });
   if (!res.ok) return barNote(res.error);
-  chosen.forEach((t) => t.remove());
+  picked.forEach((t) => t.remove());
+  forget(ids);
+  $("more").hidden = origRest.length === 0;
+  $("smore").hidden = stripRest.length === 0;
   updateChrome();
 });
 
 /* ---------- start ---------- */
-let rest = [];
-
-function showMore() {
-  const batch = rest.splice(0, PAGE).map((meta) => makeTile({ meta }));
-  for (const t of batch) { tiles.add(t); $("grid").append(t.el); }
-  $("more").hidden = rest.length === 0;
-  updateChrome();
-  batch.forEach((t) => t.submit());
+function showKeyBanner(visuals) {
+  const reason = typeof visuals.reason === "string" ? visuals.reason : "";
+  $("banner").append(
+    h("p", {}, "Щоб почати, додайте ключ OpenAI. Відкрийте файл .env у папці програми, вставте рядок OPENAI_API_KEY=ваш_ключ і перезапустіть програму."),
+    h("p", {}, "Не знаєте, як? Покажіть це повідомлення тому, хто налаштовував програму."),
+    ...(reason ? [h("details", {}, h("summary", {}, "Деталі"), reason)] : []));
+  $("banner").hidden = false;
+  lockGen("key", true);
+  lockMod("key", true);
 }
-$("more").addEventListener("click", showMore);
+
+const listOf = (res) => (res.ok && res.data && Array.isArray(res.data.items) ? res.data.items : null);
 
 async function start() {
-  const [config, visuals, gallery] = await Promise.all([
-    apiQuiet("/api/config"), apiQuiet("/api/visuals"), apiQuiet("/api/gallery")]);
+  showTab(location.hash === "#modifications" ? "modifications" : "originals");
+  const [config, visuals, originals, mods] = await Promise.all([
+    apiQuiet("/api/config"), apiQuiet("/api/visuals"),
+    apiQuiet("/api/gallery?kind=original"), apiQuiet("/api/gallery?kind=modification")]);
   if (config.ok && config.data && typeof config.data === "object") CONFIG = Object.assign(CONFIG, config.data);
-  updateLabels();
+  if (visuals.ok && visuals.data && visuals.data.available === false) showKeyBanner(visuals.data);
 
-  if (visuals.ok && visuals.data && visuals.data.available === false) {
-    const reason = typeof visuals.data.reason === "string" ? visuals.data.reason : "";
-    $("banner").append(
-      h("p", {}, "Щоб почати, додайте ключ OpenAI. Відкрийте файл .env у папці програми, вставте рядок OPENAI_API_KEY=ваш_ключ і перезапустіть програму."),
-      h("p", {}, "Не знаєте, як? Покажіть це повідомлення тому, хто налаштовував програму."),
-      ...(reason ? [h("details", {}, h("summary", {}, "Деталі"), reason)] : []));
-    $("banner").hidden = false;
-    locks.key = true;
-  }
-
-  if (gallery.ok && gallery.data && Array.isArray(gallery.data.items)) {
-    galleryReady = true;
-    rest = gallery.data.items.slice();
-    showMore();
+  const o = listOf(originals);
+  if (o) {
+    ready = true;
+    store.originals = o.slice();
+    origRest = o.slice();
+    stripRest = o.slice();
+    showMoreOriginals();
+    showMoreStrip();
   } else {
-    $("note").textContent = gallery.stale ? STALE : "Не вдалося завантажити галерею. Оновіть сторінку.";
+    $("note").textContent = originals.stale ? STALE : "Не вдалося завантажити галерею. Оновіть сторінку.";
   }
-  locks.startup = false;
-  syncGo();
+
+  const m = listOf(mods);
+  if (m) {
+    store.mods = m.slice();
+    for (const meta of m) pendingGroups.set(meta.parent, [...(pendingGroups.get(meta.parent) || []), meta]);
+    showMoreGroups();
+  } else {
+    $("mnote").textContent = mods.stale ? STALE : "Не вдалося завантажити модифікації. Оновіть сторінку.";
+  }
+  lockGen("startup", false);
+  lockMod("startup", false);
   updateChrome();
 }
 start();
