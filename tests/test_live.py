@@ -14,6 +14,8 @@ from tests.helpers import ROOT, make_root
 class LiveOpenAI(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        saved = dict(os.environ)
+        cls.addClassCleanup(lambda: (os.environ.clear(), os.environ.update(saved)))
         envfile.load_dotenv(ROOT / ".env", allowed=envfile.ENGINE_VARS)
         if not (os.environ.get("OPENAI_API_KEY") or "").strip():
             raise unittest.SkipTest("Немає OPENAI_API_KEY (.env або середовище)")
@@ -47,6 +49,13 @@ class LiveOpenAI(unittest.TestCase):
                                           {"pain": "Lost socks"}, "clean modern product photography")
             visuals.get_provider("openai").generate(prompt, dest)
             data = dest.read_bytes()
+        self.assertTrue(data.startswith(visuals.PNG_MAGIC))
+        self.assertGreater(len(data), 10_000)
+
+    def test_quick_image_roundtrip(self):
+        engine = Engine(make_root(), llm.get_backend("demo"), images=visuals.get_provider("openai"))
+        meta = engine.quick_image("A pair of striped socks lying flat on a wooden floor, soft natural light", "vertical")
+        data = engine.gallery.path(meta["id"]).read_bytes()
         self.assertTrue(data.startswith(visuals.PNG_MAGIC))
         self.assertGreater(len(data), 10_000)
 
