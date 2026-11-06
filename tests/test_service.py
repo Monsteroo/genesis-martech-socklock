@@ -1,4 +1,5 @@
 import json
+import threading
 import unittest
 
 from engine import images as imgs
@@ -216,6 +217,51 @@ class ImageTests(unittest.TestCase):
         with self.assertRaises(VisualsUnavailable):
             engine.shot_image("o001", 1)
         self.assertEqual(engine.list_images("o001"), {"keys": []})
+
+    def test_concurrent_requests_for_one_key_make_one_provider_call(self):
+        started, release = threading.Event(), threading.Event()
+
+        class SlowImages(FakeImages):
+            def generate(self, prompt, dest):
+                started.set()
+                release.wait(5)
+                return super().generate(prompt, dest)
+
+        slow = SlowImages()
+        engine = Engine(self.root, FakeLLM(), images=slow)
+        results = []
+        first = threading.Thread(target=lambda: results.append(engine.shot_image("o001", 1)))
+        first.start()
+        self.assertTrue(started.wait(5))
+        second = threading.Thread(target=lambda: results.append(engine.shot_image("o001", 1)))
+        second.start()
+        release.set()
+        first.join(5)
+        second.join(5)
+        self.assertEqual(len(slow.prompts), 1)
+        self.assertEqual(sorted(r["cached"] for r in results), [False, True])
+
+    def test_different_keys_run_in_parallel(self):
+        both_inside = threading.Barrier(2, timeout=5)
+
+        class ParallelImages(FakeImages):
+            def generate(self, prompt, dest):
+                both_inside.wait()  # only passes if two generations are inside at the same time
+                return super().generate(prompt, dest)
+
+        engine = Engine(self.root, FakeLLM(), images=ParallelImages())
+        errors = []
+
+        def run(n):
+            try:
+                engine.shot_image("o001", n)
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=run, args=(n,)) for n in (1, 2)]
+        [t.start() for t in threads]
+        [t.join(10) for t in threads]
+        self.assertEqual(errors, [])
 
 
 class VariantKeyTests(unittest.TestCase):

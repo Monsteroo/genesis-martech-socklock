@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import secrets
 import threading
@@ -24,10 +25,30 @@ ROUTES = {
     "/api/image": lambda e, b: e.image(b),
 }
 
+IMAGE_ROUTES = {"/api/image", "/api/gen"}
+IMAGE_QUEUE_TIMEOUT = 600
 
-def make_server(engine, port=8780):
+
+def image_workers_from_env():
+    try:
+        value = int(os.environ.get("IMAGE_WORKERS") or 4)
+    except ValueError:
+        return 4
+    return max(1, min(8, value))
+
+
+def _price_from_env():
+    try:
+        return float(os.environ.get("OPENAI_IMAGE_PRICE_USD") or "")
+    except ValueError:
+        return None
+
+
+def make_server(engine, port=8780, image_workers=None):
     token = secrets.token_urlsafe(24)
-    busy = threading.Lock()  # text requests run one at a time (текстові запити по одному)
+    workers = image_workers or image_workers_from_env()
+    busy = threading.Lock()  # text requests run one at a time; images run up to `workers` in parallel
+    slots = threading.BoundedSemaphore(workers)
     html = PAGE.read_text(encoding="utf-8").replace("__TOKEN__", token)
 
     class Handler(BaseHTTPRequestHandler):
@@ -79,6 +100,14 @@ def make_server(engine, port=8780):
             if url.path == "/api/visuals":
                 ok, reason = engine.images.available()
                 return self._json(200, {"ok": True, "data": {"available": ok, "reason": reason}})
+            if url.path == "/api/config":
+                images = engine.images
+                return self._json(200, {"ok": True, "data": {
+                    "workers": workers,
+                    "provider": getattr(images, "name", ""),
+                    "image_model": getattr(images, "model", ""),
+                    "price_usd": _price_from_env(),
+                }})
             if url.path == "/api/images":
                 original_id = parse_qs(url.query).get("id", [""])[0]
                 try:
@@ -119,21 +148,28 @@ def make_server(engine, port=8780):
                 return self._json(400, {"ok": False, "error": "Некоректний JSON"})
             if not isinstance(body, dict):
                 return self._json(400, {"ok": False, "error": "Очікується JSON-об'єкт"})
-            route = ROUTES.get(urlparse(self.path).path)
+            path = urlparse(self.path).path
+            route = ROUTES.get(path)
             if route is None:
                 return self._json(404, {"ok": False, "error": "Не знайдено"})
-            if not busy.acquire(blocking=False):
-                return self._json(409, {"ok": False, "error": "Інший запит ще виконується."})
+            is_image = path in IMAGE_ROUTES
+            if is_image:
+                acquired = slots.acquire(timeout=IMAGE_QUEUE_TIMEOUT)
+            else:
+                acquired = busy.acquire(blocking=False)
+            if not acquired:
+                message = "Усі слоти генерації зайняті, спробуйте пізніше." if is_image else "Інший запит ще виконується."
+                return self._json(409, {"ok": False, "error": message})
             try:
                 self._json(200, {"ok": True, "data": route(engine, body)})
             except OSError:  # never echo str(exc): it can hold file paths
                 self._json(400, {"ok": False, "error": "Помилка файлової системи"})
             except (LLMError, LibraryError, KeyError, ValueError, TypeError) as exc:
                 self._json(400, {"ok": False, "error": str(exc)})
-            except Exception:  # a bug must not kill the connection silently or hold the busy lock
+            except Exception:  # a bug must not kill the connection silently or hold a lock
                 self._json(500, {"ok": False, "error": "Внутрішня помилка сервера"})
             finally:
-                busy.release()
+                (slots if is_image else busy).release()
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.token = token

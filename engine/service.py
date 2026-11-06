@@ -1,5 +1,6 @@
 import json
 import re
+import threading
 from pathlib import Path
 
 from engine import compose as composer
@@ -23,6 +24,8 @@ class Engine:
         self.out_dir = self.root / "out"
         self.images = images if images is not None else visuals.NoImages()
         self.image_store = imgs.ImageStore(self.root / "library" / "images")
+        self._image_locks = {}
+        self._image_locks_guard = threading.Lock()
 
     def _save(self, name, data):
         self.out_dir.mkdir(parents=True, exist_ok=True)
@@ -98,11 +101,16 @@ class Engine:
         return result
 
     # photos
+    def _key_lock(self, original_id, key):
+        with self._image_locks_guard:
+            return self._image_locks.setdefault((original_id, key), threading.Lock())
+
     def _image(self, original_id, key, prompt):
         dest = self.image_store.path(original_id, key)
-        if dest.is_file():
-            return {"id": original_id, "key": key, "cached": True}
-        self.images.generate(prompt, dest)
+        with self._key_lock(original_id, key):
+            if dest.is_file():
+                return {"id": original_id, "key": key, "cached": True}
+            self.images.generate(prompt, dest)
         return {"id": original_id, "key": key, "cached": False}
 
     def shot_image(self, original_id, n):

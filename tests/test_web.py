@@ -1,8 +1,11 @@
 import http.client
 import json
+import os
 import threading
 import unittest
+from unittest import mock
 
+from engine import web
 from engine.llm import LLMError
 from engine.service import Engine
 from engine.web import make_server
@@ -377,3 +380,105 @@ class ImageWebTests(HttpMixin, unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ParallelImageTests(HttpMixin, unittest.TestCase):
+    def make(self, images, workers=2):
+        self.engine = Engine(make_root(), FakeLLM(variants_answer(5)), images=images)
+        self.engine.library.add("Socks", "lost", SAMPLE_BLOCKS,
+                                shot_list=["s1", "s2", "s3", "s4"])
+        self.server = make_server(self.engine, port=0, image_workers=workers)
+        self.port = self.server.server_port
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def post_shot(self, n, results):
+        status, text = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": n},
+                                    {"X-Token": self.server.token})
+        results[n] = (status, json.loads(text))
+
+    def test_images_run_in_parallel_up_to_the_worker_limit(self):
+        state = {"active": 0, "max": 0}
+        lock = threading.Lock()
+        release = threading.Event()
+        entered = threading.Semaphore(0)
+
+        class BlockingImages(FakeImages):
+            def generate(self, prompt, dest):
+                with lock:
+                    state["active"] += 1
+                    state["max"] = max(state["max"], state["active"])
+                entered.release()
+                release.wait(5)
+                with lock:
+                    state["active"] -= 1
+                return super().generate(prompt, dest)
+
+        self.make(BlockingImages(), workers=2)
+        results = {}
+        threads = [threading.Thread(target=self.post_shot, args=(n, results)) for n in (1, 2, 3)]
+        [t.start() for t in threads]
+        self.assertTrue(entered.acquire(timeout=5))
+        self.assertTrue(entered.acquire(timeout=5))
+        self.assertFalse(entered.acquire(timeout=0.3))  # the third waits for a free slot
+        release.set()
+        [t.join(10) for t in threads]
+        self.assertEqual(state["max"], 2)
+        self.assertEqual({n: r[0] for n, r in results.items()}, {1: 200, 2: 200, 3: 200})
+
+    def test_text_requests_are_not_blocked_by_running_images(self):
+        release, entered = threading.Event(), threading.Event()
+
+        class BlockingImages(FakeImages):
+            def generate(self, prompt, dest):
+                entered.set()
+                release.wait(5)
+                return super().generate(prompt, dest)
+
+        self.make(BlockingImages(), workers=1)
+        results = {}
+        image = threading.Thread(target=self.post_shot, args=(1, results))
+        image.start()
+        self.assertTrue(entered.wait(5))
+        status, text = self.request("POST", "/api/variants", {"id": "o001", "instruction": "5 hooks", "count": 5},
+                                    {"X-Token": self.server.token})
+        self.assertEqual(status, 200)
+        release.set()
+        image.join(10)
+
+    def test_a_full_queue_times_out_with_409(self):
+        release, entered = threading.Event(), threading.Event()
+
+        class BlockingImages(FakeImages):
+            def generate(self, prompt, dest):
+                entered.set()
+                release.wait(5)
+                return super().generate(prompt, dest)
+
+        self.make(BlockingImages(), workers=1)
+        results = {}
+        first = threading.Thread(target=self.post_shot, args=(1, results))
+        first.start()
+        self.assertTrue(entered.wait(5))
+        with mock.patch("engine.web.IMAGE_QUEUE_TIMEOUT", 0.2):
+            self.post_shot(2, results)
+        self.assertEqual(results[2][0], 409)
+        self.assertIn("слоти", results[2][1]["error"])
+        release.set()
+        first.join(10)
+
+    def test_config_route_has_no_secrets(self):
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-secret-0123456789", "OPENAI_IMAGE_PRICE_USD": "0.04"}):
+            self.make(FakeImages(), workers=3)
+            status, text = self.request("GET", "/api/config")
+        self.assertEqual(status, 200)
+        data = json.loads(text)["data"]
+        self.assertEqual(data["workers"], 3)
+        self.assertEqual(data["price_usd"], 0.04)
+        self.assertNotIn("sk-secret", text)
+
+    def test_workers_from_env(self):
+        for value, expected in (("6", 6), ("0", 1), ("99", 8), ("junk", 4), ("", 4)):
+            with mock.patch.dict(os.environ, {"IMAGE_WORKERS": value}):
+                self.assertEqual(web.image_workers_from_env(), expected)
