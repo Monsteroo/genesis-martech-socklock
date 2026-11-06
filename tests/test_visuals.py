@@ -386,9 +386,19 @@ class OpenAIImageProviderTests(unittest.TestCase):
         blocker = Path(tempfile.mkdtemp()) / "afile"
         blocker.write_text("x")
         t = FakeTransport(image_response())
-        with self.assertRaises(OSError):
+        with self.assertRaises(llm.LLMError) as ctx:
             visuals.OpenAIImageProvider(transport=t).generate("a scene", blocker / "sub" / "s.png")
+        self.assertNotIn(str(blocker), str(ctx.exception))
         self.assertEqual(t.requests, [])
+
+    def test_non_string_image_data_is_a_readable_error(self):
+        for bad in (None, 123, ["x"]):
+            t = FakeTransport(http_ok({"data": [{"b64_json": bad}]}))
+            with self.assertRaises(llm.LLMError) as ctx:
+                visuals.OpenAIImageProvider(transport=t).generate("a scene", self.dest)
+            self.assertIn("пошкоджені", str(ctx.exception))
+            self.assertEqual(len(t.requests), 1)
+            self.assertFalse(self.dest.exists())
 
     def test_newline_wrapped_base64_is_accepted(self):
         raw = base64.b64encode(PNG_MAGIC + b"img" * 40).decode("ascii")
@@ -446,6 +456,15 @@ class AtomicWriteConcurrencyTests(unittest.TestCase):
         self.assertEqual(len(set(sources)), 2)
         self.assertIn(dest.read_bytes(), (PNG_MAGIC + b"\x01" * 5000, PNG_MAGIC + b"\x02" * 5000))
         self.assertEqual(list(dest.parent.glob("*.part")), [])
+
+    def test_final_files_are_world_readable(self):
+        tmp = Path(tempfile.mkdtemp())
+        visuals._atomic_write(tmp / "w.png", PNG_MAGIC)
+        src = tmp / "src.png"
+        src.write_bytes(PNG_MAGIC)
+        visuals._atomic_copy(src, tmp / "c.png")
+        for name in ("w.png", "c.png"):
+            self.assertEqual((tmp / name).stat().st_mode & 0o777, 0o644)
 
     def test_atomic_write_uses_unique_temp_files(self):
         self._race(lambda dest, n: visuals._atomic_write(dest, PNG_MAGIC + bytes([n]) * 5000))

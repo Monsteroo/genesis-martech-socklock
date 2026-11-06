@@ -108,6 +108,29 @@ class RealTransportTests(EnvCase):
             opener.open.return_value = resp
             self.assertEqual(openai_api.real_transport(self.request()), {"status": 200, "body": b"{}"})
 
+    def test_oversized_responses_are_rejected(self):
+        resp = mock.MagicMock()
+        resp.__enter__.return_value = resp
+        resp.status = 200
+        resp.read.return_value = b"x" * 11
+        with mock.patch.object(openai_api, "MAX_RESPONSE_BYTES", 10), \
+                mock.patch.object(openai_api, "_opener") as opener:
+            opener.open.return_value = resp
+            with self.assertRaises(OpenAIError) as ctx:
+                openai_api.real_transport(self.request())
+        resp.read.assert_called_once_with(11)
+        self.assertIn("завелика", str(ctx.exception))
+
+    def test_oversized_error_bodies_are_rejected(self):
+        err = urllib.error.HTTPError("u", 500, "Err", {}, io.BytesIO(b"x" * 11))
+        self.addCleanup(err.close)
+        with mock.patch.object(openai_api, "MAX_RESPONSE_BYTES", 10), \
+                mock.patch.object(openai_api, "_opener") as opener:
+            opener.open.side_effect = err
+            with self.assertRaises(OpenAIError) as ctx:
+                openai_api.real_transport(self.request())
+        self.assertIn("завелика", str(ctx.exception))
+
     def test_http_error_becomes_a_status_response(self):
         err = urllib.error.HTTPError("u", 401, "Unauthorized", {}, io.BytesIO(b'{"error":{"message":"bad"}}'))
         self.addCleanup(err.close)

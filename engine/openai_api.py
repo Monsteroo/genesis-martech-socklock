@@ -50,20 +50,34 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _opener = urllib.request.build_opener(_NoRedirect)
 
 
+MAX_RESPONSE_BYTES = 60_000_000
+
+
+def _read_bounded(stream):
+    body = stream.read(MAX_RESPONSE_BYTES + 1)
+    if len(body) > MAX_RESPONSE_BYTES:
+        raise OpenAIError("Відповідь OpenAI завелика.")
+    return body
+
+
 def real_transport(request):
     req = urllib.request.Request(
         request["url"], data=request.get("body"), method=request["method"], headers=request["headers"]
     )
     try:
         with _opener.open(req, timeout=request["timeout"]) as resp:
-            return {"status": resp.status, "body": resp.read()}
+            return {"status": resp.status, "body": _read_bounded(resp)}
     except urllib.error.HTTPError as exc:
         try:
-            return {"status": exc.code, "body": exc.read()}
+            return {"status": exc.code, "body": _read_bounded(exc)}
+        except OpenAIError:
+            raise
         except Exception as inner:
             raise OpenAIError(f"Немає зв'язку з OpenAI API ({type(inner).__name__}). Автоматичного повтору немає.") from None
         finally:
             exc.close()
+    except OpenAIError:
+        raise
     except (urllib.error.URLError, OSError) as exc:  # TimeoutError is an OSError
         raise OpenAIError(f"Немає зв'язку з OpenAI API ({type(exc).__name__}). Автоматичного повтору немає.") from None
     except Exception as exc:

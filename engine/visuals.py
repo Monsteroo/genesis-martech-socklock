@@ -43,6 +43,7 @@ def _atomic_copy(src, dest):
     os.close(fd)
     try:
         shutil.copyfile(src, tmp)
+        os.chmod(tmp, 0o644)
         os.replace(tmp, dest)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
@@ -58,6 +59,7 @@ def _atomic_write(dest, data):
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
+        os.chmod(tmp, 0o644)
         os.replace(tmp, dest)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
@@ -249,7 +251,10 @@ class OpenAIImageProvider:
             raise LLMError("Порожній опис зображення.")
         if len(prompt) > MAX_IMAGE_PROMPT:
             raise LLMError(f"Опис зображення задовгий ({len(prompt)} символів, ліміт {MAX_IMAGE_PROMPT}).")
-        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        try:
+            Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            raise LLMError("Не вдалося створити папку для зображення.") from None
         data = request_json(
             "POST", "/images/generations",
             {"model": self.model, "prompt": prompt, "size": self.size, "quality": self.quality,
@@ -260,7 +265,9 @@ class OpenAIImageProvider:
             encoded = data["data"][0]["b64_json"]
         except (KeyError, IndexError, TypeError):
             raise OpenAIError("OpenAI не повернув зображення (у відповіді немає data[0].b64_json).") from None
-        if isinstance(encoded, str) and len(encoded) > MAX_IMAGE_B64:
+        if not isinstance(encoded, str):
+            raise OpenAIError("OpenAI повернув пошкоджені дані зображення.")
+        if len(encoded) > MAX_IMAGE_B64:
             raise OpenAIError("OpenAI повернув надто великі дані зображення.")
         try:
             png = base64.b64decode("".join(encoded.split()), validate=True)
