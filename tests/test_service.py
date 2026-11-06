@@ -77,6 +77,27 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(result["reuse_share"], 0.5)
         self.assertTrue((self.root / "out" / "compose_1.json").exists())
 
+    def test_pains_and_concepts_are_saved(self):
+        pains = {"pains": [{"pain": "Lost socks", "quotes": ["q"]}]}
+        concepts = {"concepts": [{"angle": "Mystery", "hook": "Hook"}]}
+        e = self.engine(pains, concepts)
+        result = e.pains("I lose socks q")
+        self.assertEqual(result["pains"], pains["pains"])
+        self.assertEqual(e.saved_pains(), result)
+        self.assertTrue((self.root / "out" / "pains.json").exists())
+        e.concepts(PAIN, 1)
+        self.assertEqual(e.saved_concepts(), {"pain": PAIN, "concepts": concepts["concepts"]})
+        self.assertTrue((self.root / "out" / "concepts.json").exists())
+
+    def test_saved_lists_missing(self):
+        e = self.engine()
+        with self.assertRaises(LibraryError) as c:
+            e.saved_pains()
+        self.assertIn("Спершу", str(c.exception))
+        with self.assertRaises(LibraryError) as c:
+            e.saved_concepts()
+        self.assertIn("Спершу", str(c.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

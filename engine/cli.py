@@ -35,14 +35,14 @@ def cmd_pains(a, e):
 
 
 def cmd_concepts(a, e):
-    pain = _pick(e.pains(_read(a.file))["pains"], a.pain, "болю")
+    pain = _pick(e.saved_pains()["pains"], a.pain, "болю")
     emit(e.concepts(pain))
 
 
 def cmd_build(a, e):
-    pain = _pick(e.pains(_read(a.file))["pains"], a.pain, "болю")
-    concept = _pick(e.concepts(pain)["concepts"], a.concept, "концепту")
-    emit(e.build_original(pain, concept, a.status))
+    saved = e.saved_concepts()
+    concept = _pick(saved["concepts"], a.concept, "концепту")
+    emit(e.build_original(saved["pain"], concept, a.status))
 
 
 def cmd_list(a, e):
@@ -109,12 +109,9 @@ def build_parser():
     s.add_argument("file")
     s.set_defaults(func=cmd_pains)
     s = orig.add_parser("concepts")
-    s.add_argument("file")
     s.add_argument("--pain", type=int, required=True)
     s.set_defaults(func=cmd_concepts)
     s = orig.add_parser("build")
-    s.add_argument("file")
-    s.add_argument("--pain", type=int, required=True)
     s.add_argument("--concept", type=int, required=True)
     s.add_argument("--status", default="draft")
     s.set_defaults(func=cmd_build)

@@ -27,10 +27,26 @@ class Engine:
     def pains(self, text):
         if not isinstance(text, str) or not text.strip():
             raise LibraryError("Вставте текст з коментарями.")
-        return origin.find_pains(self.llm, text)
+        result = origin.find_pains(self.llm, text)
+        self._save("pains.json", result)
+        return result
 
     def concepts(self, pain, count=5):
-        return {"concepts": origin.make_concepts(self.llm, pain, count)}
+        result = {"concepts": origin.make_concepts(self.llm, pain, count)}
+        self._save("concepts.json", {"pain": pain, **result})
+        return result
+
+    def _load_saved(self, name, hint):
+        path = self.out_dir / name
+        if not path.exists():
+            raise LibraryError(hint)
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def saved_pains(self):
+        return self._load_saved("pains.json", "Спершу виконайте `originals pains FILE`.")
+
+    def saved_concepts(self):
+        return self._load_saved("concepts.json", "Спершу виконайте `originals concepts --pain N`.")
 
     def build_original(self, pain, concept, status="draft"):
         script = origin.write_script(self.llm, pain, concept, self.glossary)

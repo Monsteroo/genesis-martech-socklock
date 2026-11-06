@@ -32,10 +32,19 @@ class CliTests(unittest.TestCase):
         concepts = {"concepts": [{"angle": "Mystery", "hook": "Hook"}]}
         script = {"title": "T", "blocks": SAMPLE_BLOCKS, "shot_list": ["shot"]}
         fake = FakeLLM(pains, concepts, script)
-        code, out, err = run(["originals", "build", str(self.pains_file), "--pain", "1", "--concept", "1"],
-                             llm=fake, root=self.root)
+        code, out, err = run(["originals", "pains", str(self.pains_file)], llm=fake, root=self.root)
         self.assertEqual(code, 0, err)
-        self.assertEqual(json.loads(out)["id"], "o001")
+        shown_pain = json.loads(out)["pains"][0]["pain"]
+        code, out, err = run(["originals", "concepts", "--pain", "1"], llm=fake, root=self.root)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(fake.prompts), 2)
+        code, out, err = run(["originals", "build", "--concept", "1"], llm=fake, root=self.root)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(fake.prompts), 3)
+        record = json.loads(out)
+        self.assertEqual(record["id"], "o001")
+        self.assertEqual(record["pain"], shown_pain)
+        self.assertEqual(record["source"], "Mystery")
 
         code, out, _ = run(["library", "status", "o001", "winner"], llm=FakeLLM(), root=self.root)
         self.assertEqual(json.loads(out)["status"], "winner")
@@ -49,10 +58,31 @@ class CliTests(unittest.TestCase):
 
     def test_pain_number_out_of_range_is_a_clean_error(self):
         pains = {"pains": [{"pain": "Lost socks", "quotes": ["Every single wash I lose one sock."]}]}
-        code, out, err = run(["originals", "concepts", str(self.pains_file), "--pain", "5"],
-                             llm=FakeLLM(pains), root=self.root)
+        fake = FakeLLM(pains)
+        run(["originals", "pains", str(self.pains_file)], llm=fake, root=self.root)
+        code, out, err = run(["originals", "concepts", "--pain", "5"], llm=fake, root=self.root)
         self.assertEqual(code, 1)
         self.assertIn("Помилка", err)
+
+    def test_concept_number_out_of_range_is_a_clean_error(self):
+        pains = {"pains": [{"pain": "Lost socks", "quotes": ["q"]}]}
+        concepts = {"concepts": [{"angle": "Mystery", "hook": "Hook"}]}
+        fake = FakeLLM(pains, concepts)
+        run(["originals", "pains", str(self.pains_file)], llm=fake, root=self.root)
+        run(["originals", "concepts", "--pain", "1"], llm=fake, root=self.root)
+        code, _, err = run(["originals", "build", "--concept", "3"], llm=fake, root=self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("Помилка", err)
+
+    def test_concepts_before_pains_needs_pains_first(self):
+        code, _, err = run(["originals", "concepts", "--pain", "1"], llm=FakeLLM(), root=self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("Спершу", err)
+
+    def test_build_before_concepts_needs_concepts_first(self):
+        code, _, err = run(["originals", "build", "--concept", "1"], llm=FakeLLM(), root=self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("Спершу", err)
 
     def test_library_error_returns_1(self):
         code, _, err = run(["library", "show", "o404"], llm=FakeLLM(), root=self.root)
