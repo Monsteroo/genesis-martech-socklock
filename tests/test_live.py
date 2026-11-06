@@ -59,6 +59,15 @@ class LiveOpenAI(unittest.TestCase):
         self.assertTrue(data.startswith(visuals.PNG_MAGIC))
         self.assertGreater(len(data), 10_000)
 
+    def test_modification_roundtrip(self):
+        engine = Engine(make_root(), llm.get_backend("demo"), images=visuals.get_provider("openai"))
+        original = engine.quick_image("A pair of striped socks lying flat on a wooden floor, soft natural light", "vertical")
+        modified = engine.modify_image(original["id"], "evening warm light", 0)
+        data = engine.gallery.path(modified["id"]).read_bytes()
+        self.assertEqual((modified["kind"], modified["parent"]), ("modification", original["id"]))
+        self.assertTrue(data.startswith(visuals.PNG_MAGIC))
+        self.assertGreater(len(data), 10_000)
+
 
 if __name__ == "__main__":
     unittest.main()
