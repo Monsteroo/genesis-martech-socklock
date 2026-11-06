@@ -8,7 +8,9 @@ ORIGINAL = {"blocks": SAMPLE_BLOCKS}
 
 
 def good(n, hook="Where do lost socks go?"):
-    return {"variants": [{"hook": hook, "first_line": "Line", "onscreen": "Text"} for _ in range(n)]}
+    return {"variants": [
+        {"hook": hook if i == 0 else f"{hook} {i}", "first_line": f"Line {i}", "onscreen": f"Text {i}"}
+        for i in range(n)]}
 
 
 class VariantsTests(unittest.TestCase):
@@ -35,6 +37,33 @@ class VariantsTests(unittest.TestCase):
         fake = FakeLLM(good(1, hook=long_hook), good(1))
         make_variants(fake, ORIGINAL, "x", 1, GLOSSARY)
         self.assertEqual(len(fake.prompts), 2)
+
+    def test_duplicate_hooks_are_retried_case_insensitively(self):
+        dup = good(2)
+        dup["variants"][1]["hook"] = dup["variants"][0]["hook"].upper()
+        fake = FakeLLM(dup, good(2))
+        make_variants(fake, ORIGINAL, "x", 2, GLOSSARY)
+        self.assertEqual(len(fake.prompts), 2)
+
+    def test_long_onscreen_is_retried(self):
+        long = good(2)
+        long["variants"][0]["onscreen"] = "one two three four five six seven"
+        fake = FakeLLM(long, good(2))
+        make_variants(fake, ORIGINAL, "x", 2, GLOSSARY)
+        self.assertEqual(len(fake.prompts), 2)
+
+    def test_six_word_onscreen_is_accepted(self):
+        ok = good(2)
+        ok["variants"][0]["onscreen"] = "one two three four five six"
+        fake = FakeLLM(ok)
+        make_variants(fake, ORIGINAL, "x", 2, GLOSSARY)
+        self.assertEqual(len(fake.prompts), 1)
+
+    def test_prompt_demands_distinct_fields_and_short_onscreen(self):
+        fake = FakeLLM(good(1))
+        make_variants(fake, ORIGINAL, "x", 1, GLOSSARY)
+        self.assertIn("hook, first_line і onscreen мають відрізнятися між варіантами; onscreen — не більше 6 слів",
+                      fake.prompts[0])
 
     def test_two_bad_answers_raise(self):
         fake = FakeLLM(good(1), good(1))

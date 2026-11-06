@@ -1,11 +1,14 @@
 import contextlib
 import io
 import json
+import re
 import unittest
 
 from engine import cli
 from engine.library import parse_script
 from tests.helpers import ROOT, SAMPLE_BLOCKS, make_root
+
+CYRILLIC = re.compile("[\u0400-\u04ff]")
 
 
 class SamplesTests(unittest.TestCase):
@@ -35,9 +38,12 @@ class DemoFlowTests(unittest.TestCase):
         pains = json.loads(self.run_cli("originals", "pains", pains_file))
         self.assertEqual(len(pains["pains"]), 3)
         self.assertEqual(pains["dropped_quotes"], 0)  # every demo quote is literally in pains.txt
+        self.assertTrue(all(CYRILLIC.search(p["pain"]) for p in pains["pains"]))  # pains are in Ukrainian
 
         concepts = json.loads(self.run_cli("originals", "concepts", "--pain", "1"))
         self.assertEqual(len(concepts["concepts"]), 5)
+        self.assertTrue(all(CYRILLIC.search(c["angle"]) for c in concepts["concepts"]))  # angles in Ukrainian
+        self.assertFalse(any(CYRILLIC.search(c["hook"]) for c in concepts["concepts"]))  # hooks stay English
 
         built = json.loads(self.run_cli("originals", "build", "--concept", "1"))
         self.assertEqual(built["id"], "o001")

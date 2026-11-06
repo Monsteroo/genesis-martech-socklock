@@ -37,6 +37,12 @@ class FindPainsTests(unittest.TestCase):
         self.assertEqual(len(origin.find_pains(fake, TEXT)["pains"]), 1)
 
 
+    def test_prompt_states_languages(self):
+        fake = FakeLLM({"pains": [{"pain": "Lost socks", "quotes": ["Every single wash I lose one sock."]}]})
+        origin.find_pains(fake, TEXT)
+        self.assertIn("pain — українською", fake.prompts[0])
+        self.assertIn("quotes — дослівно мовою оригіналу", fake.prompts[0])
+
     def test_curly_apostrophe_in_text_matches_straight_quote(self):
         curly = "I can" + chr(0x2019) + "t find my socks."
         fake = FakeLLM({"pains": [{"pain": "Lost", "quotes": ["I can't find my socks."]}]})
@@ -60,6 +66,12 @@ class ConceptsTests(unittest.TestCase):
         items = [{"angle": f"a{i}", "hook": f"h{i}"} for i in range(7)]
         result = origin.make_concepts(FakeLLM({"concepts": items}), PAIN, count=5)
         self.assertEqual(len(result), 5)
+
+    def test_prompt_states_languages(self):
+        fake = FakeLLM({"concepts": [{"angle": "a", "hook": "h"}]})
+        origin.make_concepts(fake, PAIN, language="English")
+        self.assertIn("angle — українською", fake.prompts[0])
+        self.assertIn("hook — мовою: English", fake.prompts[0])
 
     def test_concept_without_hook_is_retried(self):
         bad = {"concepts": [{"angle": "a"}]}

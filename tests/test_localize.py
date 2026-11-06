@@ -43,6 +43,25 @@ class LocalizeTests(unittest.TestCase):
         result = localize(FakeLLM(answer), ORIGINAL, "fr", GLOSSARY)
         self.assertIn("заборонене слово: guaranteed", result["segments"][3]["flags"])
 
+    def test_changed_numbers_are_flagged(self):
+        answer = segments_answer()
+        answer["segments"][5]["text"] = "Teste 5 Paare f\u00fcr 29 US-Dollar, alle 3 Monate."
+        result = localize(FakeLLM(answer), ORIGINAL, "de", GLOSSARY)
+        self.assertTrue(result["needs_review"])
+        self.assertEqual(result["segments"][5]["flags"], ["числа змінено: 5, 29 \u2192 5, 29, 3"])
+
+    def test_same_numbers_with_currency_symbol_are_not_flagged(self):
+        answer = segments_answer()
+        answer["segments"][5]["text"] = "Teste 5 Paare f\u00fcr 29 $, geliefert jedes Quartal."
+        result = localize(FakeLLM(answer), ORIGINAL, "de", GLOSSARY)
+        self.assertEqual(result["segments"][5]["flags"], [])
+
+    def test_prompt_keeps_numbers_and_currency(self):
+        fake = FakeLLM(segments_answer())
+        localize(fake, ORIGINAL, "de", GLOSSARY)
+        self.assertIn("Числа, ціни та символи валют залишай точно як у вхідному тексті "
+                      "(не заміняй $ на US-Dollar тощо)", fake.prompts[0])
+
     def test_missing_id_is_retried(self):
         broken = segments_answer()
         broken["segments"].pop()

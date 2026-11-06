@@ -10,7 +10,7 @@ CONCEPT = {"angle": "Mystery", "hook": "Hook"}
 
 
 def variants_answer(n=5):
-    return {"variants": [{"hook": "H", "first_line": "L", "onscreen": "O"} for _ in range(n)]}
+    return {"variants": [{"hook": f"H{i}", "first_line": f"L{i}", "onscreen": f"O{i}"} for i in range(n)]}
 
 
 class EngineTests(unittest.TestCase):

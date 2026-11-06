@@ -1,4 +1,6 @@
 import json
+import re
+from collections import Counter
 
 from engine import glossary as gl
 from engine.library import LibraryError
@@ -11,6 +13,7 @@ MARKETS = {
     "it": "італійська (Італія)",
     "pl": "польська (Польща)",
 }
+NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 MAX_GROWTH = 1.2  # on-screen text may be at most 120% of the source length
 
 
@@ -29,6 +32,7 @@ def localize(llm, original, market, glossary):
         f"### TASK: localize_{market}\n"
         f"Адаптуй рекламні тексти під ринок: {MARKETS[market]}. Це адаптація для аудиторії, а не дослівний переклад.\n"
         "Текст на екрані (ONSCREEN) має лишатися коротким.\n"
+        "Числа, ціни та символи валют залишай точно як у вхідному тексті (не заміняй $ на US-Dollar тощо).\n"
         + gl.to_prompt(glossary) + "\n"
         'Поверни ЛИШЕ JSON: {"segments":[{"id":"s1","text":"..."}]} з усіма id з входу.\n\n'
         "ВХІД:\n" + payload
@@ -53,6 +57,9 @@ def localize(llm, original, market, glossary):
         flags = []
         if s["type"] == "ONSCREEN" and len(text) > len(s["text"]) * MAX_GROWTH:
             flags.append("текст на екрані задовгий (>120% оригіналу)")
+        before, after = NUMBER.findall(s["text"]), NUMBER.findall(text)
+        if Counter(before) != Counter(after):
+            flags.append(f"числа змінено: {', '.join(before) or '-'} \u2192 {', '.join(after) or '-'}")
         for term in gl.missing_protected(s["text"], text, glossary):
             flags.append(f"термін не збережено: {term}")
         for word in gl.find_forbidden(text, glossary):
