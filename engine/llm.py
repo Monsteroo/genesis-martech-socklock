@@ -39,7 +39,23 @@ def codex_binary():
 
 
 def subprocess_runner(args, env, timeout, cwd):
-    return subprocess.run(args, capture_output=True, text=True, env=env, timeout=timeout, cwd=cwd)
+    return subprocess.run(args, capture_output=True, text=True, env=env, timeout=timeout, cwd=cwd,
+                          stdin=subprocess.DEVNULL)
+
+
+def require_login(runner, binary, env):
+    """Raise LLMError unless the Codex CLI reports a ChatGPT login."""
+    if not binary:
+        raise LLMError("Codex CLI не знайдено. Встановіть його, задайте CODEX_BIN або використайте --backend demo.")
+    try:
+        res = runner([binary, "login", "status"], env, 30, None)
+    except subprocess.TimeoutExpired:
+        raise LLMError("Перевірка входу в Codex не відповіла за 30 с. Автоматичного повтору немає.")
+    except OSError as exc:
+        raise LLMError(f"Не вдалося запустити Codex ({binary}): {exc}")
+    text = (res.stdout or "") + (res.stderr or "")
+    if res.returncode != 0 or "ChatGPT" not in text:
+        raise LLMError("Codex не залогінений через ChatGPT. Виконайте `codex login` або використайте --backend demo.")
 
 
 class CodexBackend:
@@ -50,17 +66,7 @@ class CodexBackend:
         self.binary = binary or codex_binary()
 
     def _require_login(self, env):
-        if not self.binary:
-            raise LLMError("Codex CLI не знайдено. Встановіть його, задайте CODEX_BIN або використайте --backend demo.")
-        try:
-            res = self.runner([self.binary, "login", "status"], env, 30, None)
-        except subprocess.TimeoutExpired:
-            raise LLMError("Перевірка входу в Codex не відповіла за 30 с. Автоматичного повтору немає.")
-        except OSError as exc:
-            raise LLMError(f"Не вдалося запустити Codex ({self.binary}): {exc}")
-        text = (res.stdout or "") + (res.stderr or "")
-        if res.returncode != 0 or "ChatGPT" not in text:
-            raise LLMError("Codex не залогінений через ChatGPT. Виконайте `codex login` або використайте --backend demo.")
+        require_login(self.runner, self.binary, env)
 
     def run(self, prompt):
         if len(prompt) > MAX_PROMPT:

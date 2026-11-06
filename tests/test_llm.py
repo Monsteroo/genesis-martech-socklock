@@ -138,6 +138,31 @@ class CodexBackendTests(unittest.TestCase):
         self.assertEqual(calls, [])
 
 
+class RunnerTests(unittest.TestCase):
+    def test_subprocess_runner_closes_stdin(self):
+        with mock.patch("engine.llm.subprocess.run") as run:
+            llm.subprocess_runner(["x"], {}, 5, None)
+        self.assertIs(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
+
+
+class RequireLoginTests(unittest.TestCase):
+    def test_logged_in_passes(self):
+        runner, calls = make_runner()
+        llm.require_login(runner, "/fake/codex", {})
+        self.assertEqual(calls[0]["args"], ["/fake/codex", "login", "status"])
+
+    def test_not_logged_in_raises(self):
+        runner, _ = make_runner(login_text="Not logged in")
+        with self.assertRaises(llm.LLMError):
+            llm.require_login(runner, "/fake/codex", {})
+
+    def test_missing_binary_raises_without_calling_runner(self):
+        runner, calls = make_runner()
+        with self.assertRaises(llm.LLMError):
+            llm.require_login(runner, None, {})
+        self.assertEqual(calls, [])
+
+
 class DemoBackendTests(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp())
