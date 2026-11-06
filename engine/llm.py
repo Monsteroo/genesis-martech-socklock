@@ -52,7 +52,12 @@ class CodexBackend:
     def _require_login(self, env):
         if not self.binary:
             raise LLMError("Codex CLI не знайдено. Встановіть його, задайте CODEX_BIN або використайте --backend demo.")
-        res = self.runner([self.binary, "login", "status"], env, 30, None)
+        try:
+            res = self.runner([self.binary, "login", "status"], env, 30, None)
+        except subprocess.TimeoutExpired:
+            raise LLMError("Перевірка входу в Codex не відповіла за 30 с. Автоматичного повтору немає.")
+        except OSError as exc:
+            raise LLMError(f"Не вдалося запустити Codex ({self.binary}): {exc}")
         text = (res.stdout or "") + (res.stderr or "")
         if res.returncode != 0 or "ChatGPT" not in text:
             raise LLMError("Codex не залогінений через ChatGPT. Виконайте `codex login` або використайте --backend demo.")
@@ -74,12 +79,17 @@ class CodexBackend:
                 raise LLMError(
                     f"Codex не відповів за {TIMEOUT} с. Автоматичного повтору немає: він витрачає ліміти підписки."
                 )
+            except OSError as exc:
+                raise LLMError(f"Не вдалося запустити Codex ({self.binary}): {exc}")
             if res.returncode != 0:
                 tail = (res.stderr or res.stdout or "").strip()[-300:]
                 raise LLMError(f"Codex завершився з помилкою: {tail}")
             if not out_file.exists():
                 raise LLMError("Codex не повернув відповідь.")
-            return out_file.read_text(encoding="utf-8").strip()
+            answer = out_file.read_text(encoding="utf-8").strip()
+            if not answer:
+                raise LLMError("Codex повернув порожню відповідь.")
+            return answer
 
 
 class DemoBackend:

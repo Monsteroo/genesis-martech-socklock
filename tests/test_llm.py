@@ -94,6 +94,43 @@ class CodexBackendTests(unittest.TestCase):
         with self.assertRaises(llm.LLMError):
             b.run("### TASK: x")
 
+    def test_login_check_timeout_raises_llm_error(self):
+        calls = []
+
+        def runner(args, env, timeout, cwd):
+            calls.append(args)
+            raise subprocess.TimeoutExpired(args, timeout)
+
+        b = llm.CodexBackend(runner=runner, binary="/fake/codex")
+        with self.assertRaises(llm.LLMError):
+            b.run("### TASK: x")
+        self.assertEqual(len(calls), 1)  # exec never started
+
+    def test_runner_oserror_raises_llm_error(self):
+        def runner(args, env, timeout, cwd):
+            raise FileNotFoundError("/missing/codex")
+
+        b = llm.CodexBackend(runner=runner, binary="/missing/codex")
+        with self.assertRaises(llm.LLMError):
+            b.run("### TASK: x")
+
+    def test_exec_oserror_raises_llm_error(self):
+        def runner(args, env, timeout, cwd):
+            if args[1] == "login":
+                return SimpleNamespace(returncode=0, stdout="", stderr="Logged in using ChatGPT")
+            raise PermissionError("denied")
+
+        b = llm.CodexBackend(runner=runner, binary="/fake/codex")
+        with self.assertRaises(llm.LLMError):
+            b.run("### TASK: x")
+
+    def test_empty_answer_raises(self):
+        for text in ("", "  \n\t "):
+            b, _ = self.backend(answer=text)
+            with self.assertRaises(llm.LLMError) as ctx:
+                b.run("### TASK: x")
+            self.assertIn("порожню", str(ctx.exception))
+
     def test_prompt_too_long_raises(self):
         b, calls = self.backend()
         with self.assertRaises(llm.LLMError):
