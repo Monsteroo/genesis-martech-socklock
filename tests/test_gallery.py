@@ -2,7 +2,9 @@ import io
 import json
 import tempfile
 import unittest
+import warnings
 import zipfile
+from unittest import mock
 from pathlib import Path
 
 from engine import gallery
@@ -90,6 +92,65 @@ class GalleryTests(unittest.TestCase):
             self.g.zip_bytes([gallery.new_id() for _ in range(51)])
         with self.assertRaises(LibraryError):
             self.g.zip_bytes([])
+
+    def test_find_coerces_or_skips_bad_created_and_returns_only_known_keys(self):
+        ok = self.put("ok", created=50.0)
+        s = self.put("str", created=10.0)
+        n = self.put("null", created=10.0)
+        w = self.put("word", created=10.0)
+        self.g.meta_path(s).write_text(json.dumps({"id": s, "prompt": "p", "created": "75"}), encoding="utf-8")
+        self.g.meta_path(n).write_text(json.dumps({"id": n, "prompt": "p", "created": None}), encoding="utf-8")
+        self.g.meta_path(w).write_text(json.dumps({"id": w, "prompt": "p", "created": "abc"}), encoding="utf-8")
+        ids = [m["id"] for m in self.g.find()]
+        self.assertEqual(ids[:2], [s, ok])
+        self.assertNotIn(n, ids)
+        self.assertNotIn(w, ids)
+        for m in self.g.find():
+            self.assertIsInstance(m["created"], float)
+
+    def test_find_returns_only_known_keys(self):
+        gid = self.put("p", created=1.0)
+        meta = json.loads(self.g.meta_path(gid).read_text(encoding="utf-8"))
+        meta["secret"] = "x"
+        self.g.meta_path(gid).write_text(json.dumps(meta), encoding="utf-8")
+        self.assertEqual(sorted(self.g.find()[0]), ["created", "id", "parent", "prompt", "size", "style"])
+
+    def test_find_order_is_deterministic_on_equal_created(self):
+        ids = [self.put(str(i), created=5.0) for i in range(5)]
+        self.assertEqual([m["id"] for m in self.g.find()], sorted(ids, reverse=True))
+
+    def test_fresh_id_skips_existing_ids(self):
+        taken = self.put("t")
+        with mock.patch("engine.gallery.new_id", side_effect=[taken, "g00000002"]):
+            self.assertEqual(self.g.fresh_id(), "g00000002")
+
+    def test_zip_dedupes_ids_without_warnings(self):
+        a = self.put("a")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            data = self.g.zip_bytes([a, a, a])
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            self.assertEqual(z.namelist(), [f"{a}.png"])
+
+    def test_zip_skips_a_file_that_vanishes(self):
+        a, b = self.put("a"), self.put("b")
+        real = zipfile.ZipFile.write
+
+        def flaky(zf, filename, arcname=None, *args, **kw):
+            if str(filename).endswith(f"{a}.png"):
+                raise FileNotFoundError(filename)
+            return real(zf, filename, arcname, *args, **kw)
+
+        with mock.patch.object(zipfile.ZipFile, "write", flaky):
+            data = self.g.zip_bytes([a, b])
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            self.assertEqual(z.namelist(), [f"{b}.png"])
+
+    def test_delete_caps_and_dedupes(self):
+        with self.assertRaises(LibraryError):
+            self.g.delete([gallery.new_id() for _ in range(201)])
+        a = self.put("a")
+        self.assertEqual(self.g.delete([a, a]), 1)
 
 
 if __name__ == "__main__":

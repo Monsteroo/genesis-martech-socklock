@@ -330,7 +330,6 @@ class DemoDelayTests(unittest.TestCase):
                 self.assertEqual(visuals.DemoImageProvider(frame=frame).delay, want, raw)
 
 
-
 class QuickPromptTests(unittest.TestCase):
     def test_sizes_styles_and_variations(self):
         self.assertEqual(visuals.SIZES, {"vertical": "1024x1536", "square": "1024x1024", "wide": "1536x1024"})

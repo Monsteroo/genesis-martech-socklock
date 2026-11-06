@@ -40,7 +40,16 @@ class Engine:
     def quick_image(self, prompt="", format="vertical", style=None, parent=None, variation=0):
         if parent:
             meta = self.gallery.get(parent)
-            base_prompt, size, style = meta["prompt"], meta["size"], meta.get("style")
+            broken = LibraryError("Метадані зображення пошкоджено.")
+            if not isinstance(meta, dict):
+                raise broken
+            base_prompt, size, style = meta.get("prompt"), meta.get("size"), meta.get("style")
+            if not (isinstance(base_prompt, str) and base_prompt.strip() and len(base_prompt) <= MAX_QUICK_PROMPT):
+                raise broken
+            if not (isinstance(size, str) and size in visuals.SIZES.values()):
+                raise broken
+            if style is not None and not (isinstance(style, str) and style in visuals.STYLES):
+                raise broken
             if not isinstance(variation, int) or isinstance(variation, bool) or variation < 0:
                 raise LibraryError("Некоректний номер варіації.")
         else:
@@ -49,18 +58,22 @@ class Engine:
             base_prompt = prompt.strip()
             if len(base_prompt) > MAX_QUICK_PROMPT:
                 raise LibraryError(f"Опис задовгий (до {MAX_QUICK_PROMPT} символів).")
-            if format not in visuals.SIZES:
-                raise LibraryError(f"Невідомий формат: {format}. Доступні: {', '.join(visuals.SIZES)}")
+            if not isinstance(format, str) or format not in visuals.SIZES:
+                raise LibraryError(f"Невідомий формат. Доступні: {', '.join(visuals.SIZES)}")
             if style in ("", None):
                 style = None
-            elif style not in visuals.STYLES:
-                raise LibraryError(f"Невідомий стиль: {style}. Доступні: {', '.join(visuals.STYLES)}")
+            elif not isinstance(style, str) or style not in visuals.STYLES:
+                raise LibraryError(f"Невідомий стиль. Доступні: {', '.join(visuals.STYLES)}")
             size = visuals.SIZES[format]
             variation = None
         final = visuals.quick_prompt(base_prompt, style, variation if parent else None)
-        gid = galleries.new_id()
+        gid = self.gallery.fresh_id()
         self.images.generate(final, self.gallery.path(gid), size=size)
-        return self.gallery.add(gid, base_prompt, size, parent=parent or None, style=style)
+        try:
+            return self.gallery.add(gid, base_prompt, size, parent=parent or None, style=style)
+        except BaseException:
+            self.gallery.path(gid).unlink(missing_ok=True)
+            raise
 
     def list_gallery(self):
         return {"items": self.gallery.find()}

@@ -1,6 +1,7 @@
 import json
 import threading
 import unittest
+from unittest import mock
 
 from engine import images as imgs
 from engine import visuals
@@ -276,7 +277,6 @@ class VariantKeyTests(unittest.TestCase):
         self.assertEqual(saved, result)
 
 
-
 class QuickImageTests(unittest.TestCase):
     def setUp(self):
         self.root = make_root()
@@ -321,6 +321,65 @@ class QuickImageTests(unittest.TestCase):
         with self.assertRaises(LLMError):
             engine.quick_image("Socks")
         self.assertEqual(engine.list_gallery(), {"items": []})
+        self.assertEqual([p for p in (self.root / "library" / "gallery").glob("*")], [])
+
+    def test_a_failing_metadata_write_removes_the_paid_png(self):
+        with mock.patch.object(self.engine.gallery, "add", side_effect=OSError("disk")):
+            with self.assertRaises(OSError):
+                self.engine.quick_image("Socks")
+        self.assertEqual(list((self.root / "library" / "gallery").glob("*")), [])
+
+    def _parent_with(self, text):
+        gid = "g0000abcd"
+        d = self.root / "library" / "gallery"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{gid}.png").write_bytes(b"x")
+        (d / f"{gid}.json").write_text(text, encoding="utf-8")
+        return gid
+
+    def test_corrupt_parent_metadata_never_calls_the_provider(self):
+        good = {"id": "g0000abcd", "prompt": "p", "size": "1024x1536", "style": None}
+        cases = [
+            "[1, 2]",
+            json.dumps({k: v for k, v in good.items() if k != "prompt"}),
+            json.dumps({**good, "prompt": 5}),
+            json.dumps({**good, "prompt": "x" * 5000}),
+            json.dumps({**good, "size": "99x99"}),
+            json.dumps({**good, "style": ["product"]}),
+        ]
+        for text in cases:
+            gid = self._parent_with(text)
+            with self.assertRaises(LibraryError, msg=text[:40]):
+                self.engine.quick_image(parent=gid, variation=0)
+        self.assertEqual(self.fake.prompts, [])
+
+    def test_non_string_format_and_style_are_library_errors(self):
+        for kwargs in ({"prompt": "ok", "format": ["x"]}, {"prompt": "ok", "style": {}},
+                       {"prompt": "ok", "format": {}}, {"prompt": "ok", "style": ["a"]}):
+            with self.assertRaises(LibraryError, msg=str(kwargs)):
+                self.engine.quick_image(**kwargs)
+        self.assertEqual(self.fake.prompts, [])
+
+    def test_errors_do_not_echo_raw_input(self):
+        with self.assertRaises(LibraryError) as c:
+            self.engine.quick_image("ok", format="SECRET-FMT")
+        self.assertNotIn("SECRET-FMT", str(c.exception))
+        with self.assertRaises(LibraryError) as c:
+            self.engine.quick_image("ok", style="SECRET-STY")
+        self.assertNotIn("SECRET-STY", str(c.exception))
+
+    def test_bad_variation_with_a_parent_is_rejected(self):
+        first = self.engine.quick_image("Socks")
+        for bad in (-1, True, "1", None, 1.5):
+            with self.assertRaises(LibraryError, msg=repr(bad)):
+                self.engine.quick_image(parent=first["id"], variation=bad)
+        self.assertEqual(len(self.fake.prompts), 1)
+
+    def test_colliding_ids_are_never_reused(self):
+        first = self.engine.quick_image("Socks")
+        with mock.patch("engine.gallery.new_id", side_effect=[first["id"], "g00000002"]):
+            second = self.engine.quick_image("Other")
+        self.assertEqual(second["id"], "g00000002")
 
     def test_list_zip_and_delete(self):
         a = self.engine.quick_image("A")
