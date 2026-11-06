@@ -1,7 +1,9 @@
 import os
+import tempfile
 import unittest
+from pathlib import Path
 
-from engine import llm
+from engine import llm, visuals
 from engine.library import parse_script
 from engine.service import Engine
 from tests.helpers import ROOT, make_root
@@ -34,6 +36,19 @@ class LiveCodex(unittest.TestCase):
         result = engine.localize("o001", ["de"])["de"]
         self.assertEqual([s["id"] for s in result["segments"]], ["s1", "s2", "s3", "s4", "s5", "s6"])
         self.assertTrue(all(s["text"].strip() for s in result["segments"]))
+
+    def test_image_provider_is_available(self):
+        ok, reason = visuals.get_provider("codex").available()
+        self.assertTrue(ok, reason)
+
+    def test_image_generation_roundtrip(self):
+        dest = Path(tempfile.mkdtemp()) / "shot-1.png"
+        prompt = visuals.frame_prompt("A pair of striped socks lying flat on a wooden floor",
+                                      {"pain": "Lost socks"}, "clean modern product photography")
+        visuals.get_provider("codex").generate(prompt, dest)
+        data = dest.read_bytes()
+        self.assertTrue(data.startswith(bytes([137, 80, 78, 71, 13, 10, 26, 10])))
+        self.assertGreater(len(data), 10_000)
 
 
 if __name__ == "__main__":

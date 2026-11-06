@@ -3,6 +3,7 @@ import io
 import json
 import re
 import unittest
+from pathlib import Path
 
 from engine import cli
 from engine.library import parse_script
@@ -19,6 +20,11 @@ class SamplesTests(unittest.TestCase):
     def test_pains_file_is_labelled_synthetic(self):
         text = (ROOT / "samples" / "pains.txt").read_text(encoding="utf-8")
         self.assertIn("SYNTHETIC", text.splitlines()[0])
+
+    def test_demo_frame_is_a_png(self):
+        data = (ROOT / "samples" / "demo" / "frame.png").read_bytes()
+        self.assertTrue(data.startswith(bytes([137, 80, 78, 71, 13, 10, 26, 10])))
+        self.assertGreater(len(data), 10_000)
 
 
 class DemoFlowTests(unittest.TestCase):
@@ -66,6 +72,23 @@ class DemoFlowTests(unittest.TestCase):
 
         for name in ("o001_variants.json", "o001_localize_de.json", "o001_localize_fr.json", "compose_1.json"):
             self.assertTrue((self.root / "out" / name).exists(), name)
+
+    def test_demo_images_offline(self):
+        pains_file = str(ROOT / "samples" / "pains.txt")
+        self.run_cli("originals", "pains", pains_file)
+        self.run_cli("originals", "concepts", "--pain", "1")
+        self.run_cli("originals", "build", "--concept", "1", "--status", "winner")
+        shot = json.loads(self.run_cli("images", "shot", "o001", "1"))
+        self.assertEqual(shot["key"], "shot-1")
+        self.assertTrue(Path(shot["path"]).read_bytes().startswith(bytes([137, 80, 78, 71])))
+        again = json.loads(self.run_cli("images", "shot", "o001", "1"))
+        self.assertTrue(again["cached"])
+        self.run_cli("modify", "variants", "o001", "--instruction", "5 hooks", "--count", "5")
+        variant = json.loads(self.run_cli("images", "variant", "o001", "1"))
+        self.assertTrue(variant["key"].startswith("variant-"))
+        listing = json.loads(self.run_cli("images", "list", "o001"))
+        self.assertEqual(listing["keys"], sorted(["shot-1", variant["key"]]))
+        self.assertIn("доступні", self.run_cli("visuals"))
 
     def test_ping_in_demo_mode(self):
         self.assertEqual(json.loads(self.run_cli("ping")), {"answer": "ok"})
