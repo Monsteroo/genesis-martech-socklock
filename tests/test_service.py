@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 import unittest
 from unittest import mock
@@ -317,11 +318,34 @@ class QuickImageTests(unittest.TestCase):
         self.assertEqual(self.fake.sizes, ["1536x1024", "1536x1024"])
 
     def test_a_provider_failure_leaves_nothing_behind(self):
+        folder = self.root / "library" / "gallery"
+        folder.mkdir(parents=True)
         engine = Engine(self.root, FakeLLM(), images=FakeImages(fail=LLMError("boom")))
         with self.assertRaises(LLMError):
             engine.quick_image("Socks")
         self.assertEqual(engine.list_gallery(), {"items": []})
-        self.assertEqual([p for p in (self.root / "library" / "gallery").glob("*")], [])
+        self.assertTrue(folder.is_dir())
+        self.assertEqual(os.listdir(folder), [])
+
+    def test_an_interrupted_provider_that_wrote_the_file_leaves_no_orphan(self):
+        class Interrupted(FakeImages):
+            def generate(self, prompt, dest, size=None):
+                super().generate(prompt, dest, size)
+                raise KeyboardInterrupt()
+
+        folder = self.root / "library" / "gallery"
+        folder.mkdir(parents=True)
+        engine = Engine(self.root, FakeLLM(), images=Interrupted())
+        with self.assertRaises(KeyboardInterrupt):
+            engine.quick_image("Socks")
+        self.assertEqual(os.listdir(folder), [])
+
+    def test_engine_delete_and_zip_reject_unhashable_ids(self):
+        for bad in ([[1]], [{}], [None]):
+            with self.assertRaises(LibraryError):
+                self.engine.delete_gallery(bad)
+            with self.assertRaises(LibraryError):
+                self.engine.gallery_zip(bad)
 
     def test_a_failing_metadata_write_removes_the_paid_png(self):
         with mock.patch.object(self.engine.gallery, "add", side_effect=OSError("disk")):

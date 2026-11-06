@@ -98,7 +98,7 @@ class GalleryTests(unittest.TestCase):
         s = self.put("str", created=10.0)
         n = self.put("null", created=10.0)
         w = self.put("word", created=10.0)
-        self.g.meta_path(s).write_text(json.dumps({"id": s, "prompt": "p", "created": "75"}), encoding="utf-8")
+        self.g.meta_path(s).write_text(json.dumps({"id": s, "prompt": "p", "size": "1024x1536", "created": "75"}), encoding="utf-8")
         self.g.meta_path(n).write_text(json.dumps({"id": n, "prompt": "p", "created": None}), encoding="utf-8")
         self.g.meta_path(w).write_text(json.dumps({"id": w, "prompt": "p", "created": "abc"}), encoding="utf-8")
         ids = [m["id"] for m in self.g.find()]
@@ -151,6 +151,42 @@ class GalleryTests(unittest.TestCase):
             self.g.delete([gallery.new_id() for _ in range(201)])
         a = self.put("a")
         self.assertEqual(self.g.delete([a, a]), 1)
+
+    def test_find_survives_a_huge_created_number(self):
+        ok = self.put("ok", created=1.0)
+        bad = self.put("huge")
+        self.g.meta_path(bad).write_text('{"id": "%s", "prompt": "p", "created": %s}' % (bad, "1" + "0" * 400), encoding="utf-8")
+        self.assertEqual([m["id"] for m in self.g.find()], [ok])
+
+    def test_unhashable_ids_are_library_errors(self):
+        for bad in ([[1]], [{}], [None]):
+            with self.assertRaises(LibraryError, msg=repr(bad)):
+                self.g.delete(bad)
+            with self.assertRaises(LibraryError, msg=repr(bad)):
+                self.g.zip_bytes(bad)
+
+    def test_id_error_does_not_echo_the_id(self):
+        with self.assertRaises(LibraryError) as c:
+            self.g.path("SECRET/../x")
+        self.assertNotIn("SECRET", str(c.exception))
+        self.assertEqual(str(c.exception), "Некоректний id зображення.")
+
+    def test_fresh_id_gives_up_after_bounded_retries(self):
+        taken = self.put("t")
+        with mock.patch("engine.gallery.new_id", return_value=taken) as m:
+            with self.assertRaises(LibraryError):
+                self.g.fresh_id()
+        self.assertLessEqual(m.call_count, 50)
+
+    def test_find_projection_types(self):
+        gid = self.put("p", created=1.0)
+        bad_size = self.put("q", created=2.0)
+        self.g.meta_path(gid).write_text(json.dumps({"id": gid, "prompt": "p", "created": 1, "size": "1024x1024",
+                                                     "parent": 5, "style": ["x"]}), encoding="utf-8")
+        self.g.meta_path(bad_size).write_text(json.dumps({"id": bad_size, "prompt": "p", "created": 2, "size": 7}), encoding="utf-8")
+        items = self.g.find()
+        self.assertEqual([m["id"] for m in items], [gid])
+        self.assertEqual((items[0]["parent"], items[0]["style"], items[0]["size"]), (None, None, "1024x1024"))
 
 
 if __name__ == "__main__":

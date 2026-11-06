@@ -68,8 +68,8 @@ class Engine:
             variation = None
         final = visuals.quick_prompt(base_prompt, style, variation if parent else None)
         gid = self.gallery.fresh_id()
-        self.images.generate(final, self.gallery.path(gid), size=size)
         try:
+            self.images.generate(final, self.gallery.path(gid), size=size)
             return self.gallery.add(gid, base_prompt, size, parent=parent or None, style=style)
         except BaseException:
             self.gallery.path(gid).unlink(missing_ok=True)

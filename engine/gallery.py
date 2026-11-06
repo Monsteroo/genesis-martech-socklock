@@ -22,7 +22,7 @@ def new_id():
 
 def check(gid):
     if not (isinstance(gid, str) and _ID.fullmatch(gid)):
-        raise LibraryError(f"Некоректний id зображення: {gid!r}")
+        raise LibraryError("Некоректний id зображення.")
 
 
 class Gallery:
@@ -40,10 +40,11 @@ class Gallery:
         return self.root / f"{gid}.json"
 
     def fresh_id(self):
-        while True:
+        for _ in range(50):
             gid = new_id()
             if not self.path(gid).exists() and not self.meta_path(gid).exists():
                 return gid
+        raise LibraryError("Не вдалося створити id зображення.")
 
     def add(self, gid, prompt, size, parent=None, style=None, created=None):
         meta = {"id": gid, "prompt": prompt, "size": size, "parent": parent, "style": style,
@@ -83,24 +84,30 @@ class Gallery:
                 continue
             try:
                 created = float(meta.get("created"))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             if created != created or created in (float("inf"), float("-inf")):
                 continue
             prompt = meta.get("prompt")
             item = {k: meta.get(k) for k in KEYS}
             item["prompt"] = prompt if isinstance(prompt, str) else ""
+            if not isinstance(item["size"], str):
+                continue
+            for k in ("parent", "style"):
+                if not isinstance(item[k], str):
+                    item[k] = None
             item["created"] = created
             items.append(item)
         items.sort(key=lambda m: (m["created"], m["id"]), reverse=True)
         return items[:limit]
 
     def delete(self, ids):
+        ids = list(ids)
+        for gid in ids:
+            check(gid)
         ids = list(dict.fromkeys(ids))
         if len(ids) > MAX_DELETE:
             raise LibraryError(f"За раз можна видалити не більше {MAX_DELETE} зображень.")
-        for gid in ids:
-            check(gid)
         deleted = 0
         for gid in ids:
             png = self.path(gid)
@@ -111,13 +118,14 @@ class Gallery:
         return deleted
 
     def zip_bytes(self, ids):
+        ids = list(ids)
+        for gid in ids:
+            check(gid)
         ids = list(dict.fromkeys(ids))
         if not ids:
             raise LibraryError("Оберіть зображення для завантаження.")
         if len(ids) > MAX_ZIP:
             raise LibraryError(f"За раз можна завантажити не більше {MAX_ZIP} зображень.")
-        for gid in ids:
-            check(gid)
         buffer = io.BytesIO()
         added = 0
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as archive:
