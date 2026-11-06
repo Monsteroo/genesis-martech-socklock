@@ -1,6 +1,7 @@
 import json
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -68,3 +69,33 @@ class FakeImages:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(PNG_MAGIC + b"fake")
         return dest
+
+
+TEST_KEY = "sk-test-0123456789abcdef"
+
+
+class FakeTransport:
+    """Replaces only the HTTP transport. Records requests; answers in order (a response dict or an Exception to raise)."""
+
+    def __init__(self, *responses):
+        self.responses = list(responses)
+        self.requests = []
+        self._lock = threading.Lock()
+
+    def __call__(self, request):
+        with self._lock:
+            self.requests.append(request)
+            if not self.responses:
+                raise AssertionError("FakeTransport: більше немає підготовлених відповідей")
+            response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+def http_ok(payload):
+    return {"status": 200, "body": json.dumps(payload).encode("utf-8")}
+
+
+def http_error(status, payload=None):
+    return {"status": status, "body": json.dumps(payload if payload is not None else {}).encode("utf-8")}
