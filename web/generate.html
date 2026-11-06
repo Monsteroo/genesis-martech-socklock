@@ -20,7 +20,9 @@ h2{font-size:17px;margin:22px 0 8px;display:flex;align-items:baseline;gap:10px}
 .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px}
 .tabs button{border:0;border-bottom:3px solid transparent;background:none;color:var(--mut);font:inherit;font-weight:600;font-size:17px;padding:10px 14px;margin-bottom:-1px;cursor:pointer;min-height:44px}
 .tabs button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--acc)}
-.count{display:inline-block;min-width:22px;padding:0 7px;margin-left:6px;border-radius:999px;background:var(--line);color:var(--fg);font-size:13px;font-weight:600;text-align:center}
+.count{display:inline-block;min-width:22px;padding:0 7px;margin-left:8px;border-radius:999px;background:var(--line);color:var(--fg);font-size:13px;font-weight:600;text-align:center}
+.flag{margin-left:6px;color:var(--acc);font-weight:700}
+.flag.bad{color:var(--bad);font-size:inherit}
 textarea,input[type="text"]{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg)}
 textarea{resize:vertical;min-height:84px}
 textarea:focus,input:focus,button:focus-visible,.pickbox:focus-within,[role="tab"]:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
@@ -66,6 +68,7 @@ textarea:focus,input:focus,button:focus-visible,.pickbox:focus-within,[role="tab
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
 .chips button{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:5px 12px;font:inherit;font-size:14px;cursor:pointer}
 .group{margin-top:26px}
+.group.gone .again{display:none}
 .ghead{display:flex;align-items:center;gap:12px}
 .gthumb{flex:0 0 56px;width:56px;height:56px;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--card);display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:11px;text-align:center}
 .gthumb img{width:100%;height:100%;object-fit:cover;display:block}
@@ -79,8 +82,8 @@ textarea:focus,input:focus,button:focus-visible,.pickbox:focus-within,[role="tab
   <div id="banner" hidden></div>
 
   <div class="tabs" role="tablist" aria-label="Розділи">
-    <button type="button" role="tab" id="tab-originals" aria-controls="p-originals">Оригінали<span class="count" id="c-originals">0</span></button>
-    <button type="button" role="tab" id="tab-modifications" aria-controls="p-modifications">Модифікації<span class="count" id="c-modifications">0</span></button>
+    <button type="button" role="tab" id="tab-originals" aria-controls="p-originals">Оригінали<span class="count" id="c-originals">0</span><span class="flag" id="f-originals" hidden></span></button>
+    <button type="button" role="tab" id="tab-modifications" aria-controls="p-modifications">Модифікації<span class="count" id="c-modifications">0</span><span class="flag" id="f-modifications" hidden></span></button>
   </div>
 
   <section id="p-originals" role="tabpanel" aria-labelledby="tab-originals">
@@ -104,12 +107,13 @@ textarea:focus,input:focus,button:focus-visible,.pickbox:focus-within,[role="tab
   </section>
 
   <section id="p-modifications" role="tabpanel" aria-labelledby="tab-modifications" hidden>
-    <h2>1. Оберіть оригінали <span id="schosen" class="mut"></span></h2>
+    <h2>1. Оберіть оригінали</h2>
     <div id="noorig" class="mut" hidden>
-      <p>Спершу створіть оригінали у вкладці «Оригінали».</p>
+      <p>Створіть оригінали у вкладці «Оригінали».</p>
       <button type="button" class="plain" id="toorig">До оригіналів</button>
     </div>
     <div id="modform">
+      <div class="links"><button id="pickall" type="button">Вибрати всі</button></div>
       <div id="strip" class="strip" role="group" aria-label="Оригінали для зміни"></div>
       <button id="smore" class="more" type="button" hidden>Показати ще</button>
 
@@ -117,12 +121,12 @@ textarea:focus,input:focus,button:focus-visible,.pickbox:focus-within,[role="tab
       <input type="text" id="change" maxlength="300" aria-label="Що змінити" placeholder="Наприклад: вечірнє світло, інший фон, ближчий план">
       <div id="chips" class="chips" role="group" aria-label="Швидкі підказки"></div>
       <div class="row"><span class="lbl">На кожен оригінал</span><div class="seg" id="mcount" role="group" aria-label="Скільки на кожен оригінал"></div></div>
-      <div class="row"><button id="mgo" class="go" type="button" aria-disabled="true">Створити модифікації</button><span id="mhint" class="mut"></span></div>
+      <div class="row"><button id="mgo" class="go" type="button" aria-disabled="true">Створити зображення</button><span id="mhint" class="mut"></span></div>
       <div id="mmsg" class="mut" role="status" aria-live="polite"></div>
     </div>
     <div id="mnote" class="mut" role="status" aria-live="polite"></div>
 
-    <div id="mempty" class="mut" hidden>Тут з'являться змінені версії. Оберіть оригінали вище й натисніть «Створити модифікації».</div>
+    <div id="mempty" class="mut" hidden>Тут з'являться змінені версії. Оберіть оригінали вище й натисніть «Створити».</div>
     <div id="groups"></div>
     <button id="gmore" class="more" type="button" hidden>Показати ще</button>
   </section>
@@ -145,7 +149,9 @@ const AMBIGUOUS = "Зображення могло вже створитися. 
 const PAGE = 24;        // originals per page
 const GROUP_PAGE = 8;   // modifications per page inside one group
 const GROUPS_PAGE = 5;  // groups per page
+const MAX_BATCH = 24;   // most images one click may start
 const CHIPS = ["інше світло", "інший ракурс", "інший фон", "інші кольори", "ближче", "ширше"];
+const TABS = { originals: "Оригінали", modifications: "Модифікації" };
 
 const $ = (id) => document.getElementById(id);
 const h = (tag, props, ...kids) => {
@@ -154,6 +160,10 @@ const h = (tag, props, ...kids) => {
   return el;
 };
 const reducedMotion = () => matchMedia("(prefers-reduced-motion:reduce)").matches;
+const short = (s) => { s = (s || "").trim(); return s.length > 40 ? s.slice(0, 40) + "…" : s; };
+// "1 зображення", "2 зображення", "5 зображень"
+const images = (n) => (n % 10 === 1 && n % 100 !== 11) || (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14))
+  ? "зображення" : "зображень";
 
 /* ---------- network ---------- */
 async function withTimeout(ms, run) {
@@ -184,14 +194,17 @@ async function apiQuiet(path, payload, ms = TIMEOUT.api) {
   }
 }
 
-async function getBlob(url, type = "image/") {
+// The result always carries an explicit type we chose, so an opened blob URL can never render as HTML.
+const BLOB_KINDS = { image: ["image/", "image/png"], zip: ["application/", "application/zip"] };
+async function getBlob(url, kind = "image") {
+  const [prefix, exact] = BLOB_KINDS[kind];
   const blob = await withTimeout(TIMEOUT.blob, async (signal) => {
     const res = await fetch(url, { signal, headers: { "X-Token": TOKEN } });
     if (!res.ok) throw Object.assign(new Error("HTTP " + res.status), { status: res.status });
     return res.blob();
   });
-  if (!blob.type.startsWith(type)) throw new Error("Unexpected content type");
-  return blob;
+  if (!blob.type.startsWith(prefix)) throw new Error("Unexpected content type");
+  return blob.type === exact ? blob : new Blob([blob], { type: exact });
 }
 
 function explain(e, fallback) {
@@ -207,6 +220,35 @@ function save(blob, filename) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+/* ---------- one fetch and one object URL per image, shared by every tile/thumbnail that shows it ---------- */
+const blobCache = new Map();   // image id -> { id, refs, blob, url, promise }
+
+function acquire(id) {
+  let entry = blobCache.get(id);
+  if (!entry) {
+    entry = { id, refs: 0, blob: null, url: null };
+    const mine = entry;
+    mine.promise = getBlob("/api/g/" + id + ".png").then((blob) => {
+      mine.blob = blob;
+      if (mine.refs > 0) mine.url = URL.createObjectURL(blob);
+      return mine;
+    }, (err) => {
+      if (blobCache.get(id) === mine) blobCache.delete(id);   // a failed fetch is not cached
+      throw err;
+    });
+    blobCache.set(id, mine);
+  }
+  entry.refs++;
+  return entry;
+}
+
+function release(entry) {
+  if (blobCache.get(entry.id) !== entry) return;
+  if (--entry.refs > 0) return;
+  if (entry.url) URL.revokeObjectURL(entry.url);
+  blobCache.delete(entry.id);
 }
 
 /* ---------- queues: generation (CONFIG.workers) and gallery loading (3) never wait on each other ---------- */
@@ -244,12 +286,21 @@ function makeGate(btn, locks) {
   apply();
   return (name, on) => { locks[name] = on; apply(); };
 }
-const lockGen = makeGate($("go"), { startup: true, key: false, cool: false });
-const lockMod = makeGate($("mgo"), { startup: true, key: false, cool: false, none: true });
+const genLocks = { startup: true, key: false, cool: false };
+const modLocks = { startup: true, key: false, cool: false, none: true, over: false };
+const lockGen = makeGate($("go"), genLocks);
+const lockMod = makeGate($("mgo"), modLocks);
 
 function coolDown(lock) {
   lock("cool", true);
   setTimeout(() => lock("cool", false), 1500);
+}
+
+// The one gate for every start of modifications (button, Enter, «Ще 4 такі ж»): banner, cooldown, batch cap.
+function startGuard(n) {
+  if (modLocks.startup || modLocks.key || modLocks.cool || n < 1 || n > MAX_BATCH) return false;
+  coolDown(lockMod);
+  return true;
 }
 
 /* ---------- options ---------- */
@@ -276,10 +327,16 @@ function updateLabels() {
   $("go").textContent = "Згенерувати " + state.count;
   $("hint").textContent = costText(state.count);
   const n = chosen().length;
-  $("mgo").textContent = "Створити модифікації" + (n ? " " + n * state.mcount : "");
-  $("mhint").textContent = n ? costText(n * state.mcount) : "Виберіть хоча б один оригінал.";
-  $("schosen").textContent = n ? "Вибрано: " + n : "";
+  const total = n * state.mcount;
+  const over = total > MAX_BATCH;
+  $("mgo").textContent = n ? "Створити " + total + " " + images(total) : "Створити зображення";
+  $("mhint").className = over ? "bad" : "mut";
+  $("mhint").textContent = !n ? "Виберіть хоча б один оригінал."
+    : over ? "Забагато: максимум " + MAX_BATCH + " за раз. Виберіть менше оригіналів або кількість."
+    : costText(total);
+  $("pickall").textContent = n ? "Зняти" : "Вибрати всі";
   lockMod("none", n === 0);
+  lockMod("over", over);
 }
 
 segmented("count", "count", [[1, "1"], [2, "2"], [4, "4"], [6, "6"]], updateLabels);
@@ -296,34 +353,63 @@ for (const b of document.querySelectorAll("#examples button")) {
 for (const text of CHIPS) {
   const b = h("button", { type: "button" }, text);
   b.addEventListener("click", () => {
+    $("mmsg").textContent = "";
     const parts = $("change").value.split(",").map((s) => s.trim()).filter(Boolean);
     if (parts.includes(text)) return;
     const joined = [...parts, text].join(", ");
-    if (joined.length <= $("change").maxLength) $("change").value = joined;
+    if (joined.length > $("change").maxLength) { $("mmsg").textContent = "Занадто довгий опис змін."; return; }
+    $("change").value = joined;
   });
   $("chips").append(b);
 }
 
 /* ---------- data and tabs ---------- */
 const store = { originals: [], mods: [] };   // metadata, newest first: the source of the counters
-let ready = false;
-let active = "originals";
+const originalIds = new Set();
+let ready = false;    // the originals list loaded
+let loaded = false;   // start() finished
+let modsBuilt = false;
+let active = null;
 const tiles = new Set();
 
+const isGone = (id) => ready && !originalIds.has(id);
 const TAB_OF = { original: "originals", modification: "modifications" };
 const chosen = () => [...tiles].filter((t) => t.role === "chooser" && t.picked());
 const barPicked = () => [...tiles].filter((t) => t.tab === active && t.picked());
+
+// Running / failed generations of a tab, so a problem in the hidden tab is not silent.
+function jobs(tab) {
+  let busy = 0, failed = 0;
+  for (const t of tiles) {
+    if (!t.fresh || t.tab !== tab) continue;
+    if (t.state === "failed") failed++; else if (t.state === "busy") busy++;
+  }
+  return { busy, failed };
+}
 
 function updateChrome() {
   const n = barPicked().length;
   $("bar").hidden = n === 0;
   $("n").textContent = n;
-  $("c-originals").textContent = store.originals.length;
-  $("c-modifications").textContent = store.mods.length;
+  const counts = { originals: store.originals.length, modifications: store.mods.length };
+  for (const name of Object.keys(TABS)) {
+    $("c-" + name).textContent = counts[name];
+    const { busy, failed } = jobs(name);
+    const flag = $("f-" + name);
+    const note = failed ? "Є помилки: " + failed : "У роботі: " + busy;
+    flag.hidden = name === active || !(busy || failed);
+    flag.textContent = failed ? "!" : "●";
+    flag.className = "flag" + (failed ? " bad" : "");
+    flag.title = note;
+    $("tab-" + name).setAttribute("aria-label", TABS[name] + ", " + counts[name] + (flag.hidden ? "" : ", " + note));
+  }
   $("empty").hidden = !ready || store.originals.length > 0 || [...tiles].some((t) => t.tab === "originals");
   $("noorig").hidden = !ready || store.originals.length > 0;
   $("modform").hidden = !ready || store.originals.length === 0;
-  $("mempty").hidden = !ready || groups.size > 0 || store.originals.length === 0;
+  $("mempty").hidden = !modsBuilt || groups.size > 0 || store.originals.length === 0;
+  $("more").hidden = origRest.length === 0;
+  $("smore").hidden = stripRest.length === 0;
+  $("gmore").hidden = pendingGroups.size === 0;
   updateLabels();
 }
 
@@ -333,21 +419,36 @@ function clearPicks() {
   updateChrome();
 }
 
-function showTab(name, pickId) {
+function focusFirst(panel) {
+  const first = [...panel.querySelectorAll("input,textarea,button")].find((el) => el.offsetParent !== null && !el.disabled);
+  if (first) first.focus();
+}
+
+function showTab(name, pickId, focus) {
+  if (name === active && !pickId) return;   // the same tab again keeps the selection
+  const changed = name !== active;
   active = name;
-  for (const id of ["originals", "modifications"]) {
+  for (const id of Object.keys(TABS)) {
     const on = id === name;
     $("tab-" + id).setAttribute("aria-selected", String(on));
     $("tab-" + id).tabIndex = on ? 0 : -1;
     $("p-" + id).hidden = !on;
   }
   history.replaceState(null, "", "#" + name);
-  clearPicks();
-  if (pickId) pickOriginal(pickId);
+  if (changed) clearPicks();
+  if (name === "modifications") buildMods();
+  if (pickId) {
+    pickOriginal(pickId);
+    $("change").focus();
+    $("change").scrollIntoView({ block: "nearest" });
+  } else if (focus && changed) {
+    focusFirst($("p-" + name));
+  }
+  updateChrome();
 }
 
-for (const id of ["originals", "modifications"]) {
-  $("tab-" + id).addEventListener("click", () => showTab(id));
+for (const id of Object.keys(TABS)) {
+  $("tab-" + id).addEventListener("click", () => showTab(id, undefined, true));
   $("tab-" + id).addEventListener("keydown", (e) => {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
     const other = id === "originals" ? "modifications" : "originals";
@@ -355,29 +456,28 @@ for (const id of ["originals", "modifications"]) {
     $("tab-" + other).focus();
   });
 }
-$("toorig").addEventListener("click", () => { showTab("originals"); $("prompt").focus(); });
-addEventListener("hashchange", () => {
-  const name = location.hash === "#modifications" ? "modifications" : "originals";
-  if (name !== active) showTab(name);
-});
+$("toorig").addEventListener("click", () => showTab("originals", undefined, true));
+addEventListener("hashchange", () => showTab(location.hash === "#modifications" ? "modifications" : "originals"));
 
 /* ---------- tiles: one component for originals, modifications and the chooser strip ---------- */
 // opts: role ("original" | "modification" | "chooser"), meta (existing image) or payload+route (to generate),
-// group (modification tiles), onFresh(meta) once a new image exists.
+// group (modification tiles), onFresh(meta) once a new image exists, onRemove().
 function makeTile(opts) {
   const role = opts.role;
   const body = h("div", { className: "body" });
   const el = h("div", { className: "tile" + (role === "chooser" ? " chooser" : "") }, body);
-  const tile = { el, role, tab: TAB_OF[role] || "", meta: opts.meta || null, blob: null, url: null, timer: null,
-    dead: false, pickEl: null, group: opts.group || null, picked: () => false, setPicked: () => {} };
+  const tile = { el, role, tab: TAB_OF[role] || "", meta: opts.meta || null, blob: null, url: null, lease: null, timer: null,
+    dead: false, pickEl: null, group: opts.group || null, fresh: !opts.meta, state: "busy",
+    picked: () => false, setPicked: () => {} };
 
   const stopTimer = () => { clearInterval(tile.timer); tile.timer = null; };
   const spinner = (text) => { body.className = "body"; body.replaceChildren(h("div", { className: "spin" }), h("div", { className: "mut" }, text)); };
 
-  tile.queued = () => { stopTimer(); spinner(tile.meta ? "Завантажую…" : "У черзі…"); };
+  tile.queued = () => { stopTimer(); tile.state = "busy"; spinner(tile.meta ? "Завантажую…" : "У черзі…"); };
 
   tile.running = () => {
     stopTimer();
+    tile.state = "busy";
     if (tile.meta) return spinner("Завантажую…");
     spinner("Генерую… 0 с");
     const label = body.lastChild;
@@ -390,6 +490,7 @@ function makeTile(opts) {
   // kind: "ambiguous" (the image may exist already), "stale" (old token) or nothing (safe to retry).
   tile.fail = (message, kind) => {
     stopTimer();
+    tile.state = "failed";
     const reload = h("button", { type: "button", className: "primary" }, "Оновити сторінку");
     reload.addEventListener("click", () => location.reload());
     const again = h("button", { type: "button" }, kind === "ambiguous" ? "Спробувати ще (нова оплата)" : "Спробувати ще");
@@ -401,12 +502,15 @@ function makeTile(opts) {
     const buttons = kind === "stale" ? [reload, drop] : kind === "ambiguous" ? [reload, again, drop] : [again, drop];
     body.className = "body msg";
     body.replaceChildren(...lines, h("div", { className: "fixes" }, ...buttons));
+    updateChrome();
   };
 
   tile.addPick = () => {
     if (tile.pickEl) return;
+    const meta = tile.meta;
+    const what = short((role === "modification" && meta.change) || meta.prompt);
     const box = h("input", { type: "checkbox", className: "pick" });
-    box.setAttribute("aria-label", role === "chooser" ? "Вибрати оригінал" : "Вибрати зображення");
+    box.setAttribute("aria-label", (role === "chooser" ? "Вибрати оригінал" : "Вибрати зображення") + (what ? ": " + what : ""));
     box.addEventListener("change", () => { el.classList.toggle("sel", box.checked); barNote(); updateChrome(); });
     tile.pickEl = box;
     tile.picked = () => box.checked;
@@ -417,13 +521,16 @@ function makeTile(opts) {
   function actions() {
     const dl = h("button", { type: "button" }, "Завантажити");
     dl.addEventListener("click", () => save(tile.blob, tile.meta.id + ".png"));
-    const extra = h("button", { type: "button" }, role === "original" ? "Змінити →" : "Ще 4 такі ж");
+    const extra = h("button", { type: "button", className: role === "original" ? "" : "again" },
+      role === "original" ? "Змінити →" : "Ще 4 такі ж");
+    if (role === "modification") extra.title = "4 нові зображення" + (CONFIG.price_usd ? ", ≈ $" + (CONFIG.price_usd * 4).toFixed(2) : "");
     extra.addEventListener("click", () => {
       if (role === "original") return showTab("modifications", tile.meta.id);
-      extra.disabled = true;
-      setTimeout(() => { extra.disabled = false; }, 1500);
+      if (!startGuard(4)) return;
       const { parent, change } = tile.meta;
-      generateMods([0, 1, 2, 3].map((variation) => ({ parent, change: change || "", variation })));
+      // Different variation numbers on every click, counting jobs still running.
+      const used = store.mods.filter((m) => m.parent === parent).length + [...tile.group.members].filter((t) => !t.meta).length;
+      generateMods([0, 1, 2, 3].map((i) => ({ parent, change: change || "", variation: used + i })));
     });
     return h("div", { className: "acts" }, extra, dl);
   }
@@ -431,10 +538,13 @@ function makeTile(opts) {
   tile.show = async () => {
     const meta = tile.meta;
     tile.addPick();
-    const blob = await getBlob("/api/g/" + meta.id + ".png");
-    if (tile.dead) return;
-    tile.blob = blob;
-    tile.url = URL.createObjectURL(blob);
+    if (tile.lease) release(tile.lease);
+    const lease = acquire(meta.id);
+    tile.lease = lease;
+    await lease.promise;
+    if (tile.dead || tile.lease !== lease) return;
+    tile.blob = lease.blob;
+    tile.url = lease.url;
     const text = (role === "modification" && meta.change) || meta.prompt || "Зображення";
     const img = h("img", { className: "thumb", src: tile.url, alt: text, title: text });
     const open = h("button", { type: "button", className: "imgbtn", title: text }, img);
@@ -446,6 +556,7 @@ function makeTile(opts) {
       open.addEventListener("click", () => window.open(tile.url, "_blank", "noopener"));
     }
     stopTimer();
+    tile.state = "ok";
     body.className = "body";
     body.replaceChildren(open);
     if (role !== "chooser" && !el.querySelector(".acts")) {
@@ -486,10 +597,11 @@ function makeTile(opts) {
   tile.remove = () => {
     tile.dead = true;
     stopTimer();
-    if (tile.url) URL.revokeObjectURL(tile.url);
+    if (tile.lease) release(tile.lease);
     el.remove();
     tiles.delete(tile);
     if (tile.group) tile.group.drop(tile);
+    if (opts.onRemove) opts.onRemove();
   };
 
   if (opts.meta) tile.addPick();
@@ -503,17 +615,16 @@ let origRest = [];
 function generateOriginals(payloads) {
   const fresh = payloads.map((payload) => makeTile({ role: "original", payload, route: "/api/gen", onFresh: addOriginal }));
   $("grid").prepend(...fresh.map((t) => t.el));
-  updateChrome();
   fresh.forEach((t) => t.submit());
+  updateChrome();
   if (!reducedMotion()) fresh[0].el.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
 function showMoreOriginals() {
   const batch = origRest.splice(0, PAGE).map((meta) => makeTile({ role: "original", meta }));
   $("grid").append(...batch.map((t) => t.el));
-  $("more").hidden = origRest.length === 0;
-  updateChrome();
   batch.forEach((t) => t.submit());
+  updateChrome();
 }
 $("more").addEventListener("click", showMoreOriginals);
 
@@ -539,12 +650,13 @@ $("prompt").addEventListener("keydown", (e) => {
 });
 
 /* ---------- the strip of originals (modifications, step 1) ---------- */
-const strip = new Map();   // original id -> chooser tile
+const strip = new Map();   // original id -> live chooser tile
 let stripRest = [];
 
 function addChooser(meta, toFront) {
-  if (strip.has(meta.id)) return strip.get(meta.id);
-  const t = makeTile({ role: "chooser", meta });
+  const existing = strip.get(meta.id);
+  if (existing && !existing.dead) return existing;
+  const t = makeTile({ role: "chooser", meta, onRemove: () => { if (strip.get(meta.id) === t) strip.delete(meta.id); } });
   strip.set(meta.id, t);
   if (toFront) $("strip").prepend(t.el); else $("strip").append(t.el);
   t.submit();
@@ -553,7 +665,6 @@ function addChooser(meta, toFront) {
 
 function showMoreStrip() {
   stripRest.splice(0, PAGE).forEach((meta) => addChooser(meta, false));
-  $("smore").hidden = stripRest.length === 0;
   updateChrome();
 }
 $("smore").addEventListener("click", showMoreStrip);
@@ -568,32 +679,53 @@ function pickOriginal(id) {
   t.el.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
-// A freshly generated original joins the data and the strip.
+// «Вибрати всі» / «Зняти»: never selects more than one click may start.
+$("pickall").addEventListener("click", () => {
+  $("mmsg").textContent = "";
+  const picked = chosen();
+  if (picked.length) {
+    picked.forEach((t) => t.setPicked(false));
+    return updateChrome();
+  }
+  const cap = Math.max(1, Math.floor(MAX_BATCH / state.mcount));
+  const all = [...tiles].filter((t) => t.role === "chooser")
+    .sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+  all.slice(0, cap).forEach((t) => t.setPicked(true));
+  if (all.length > cap) $("mmsg").textContent = "Вибрано перші " + cap + ": максимум " + MAX_BATCH + " за раз.";
+  updateChrome();
+});
+
+// A freshly generated original joins the data and the strip (or waits for the strip to be built).
 function addOriginal(meta) {
   store.originals.unshift(meta);
-  addChooser(meta, true);
+  originalIds.add(meta.id);
+  if (modsBuilt) addChooser(meta, true); else stripRest.unshift(meta);
   updateChrome();
 }
 
 /* ---------- modification groups (one per original) ---------- */
-const groups = new Map();       // original id -> group
+const groups = new Map();        // original id -> group
 const pendingGroups = new Map(); // original id -> its saved modifications, not shown yet
 
 // The small picture of the original in a group header; a neutral box if the original is gone.
 function makeThumb(id) {
   const el = h("div", { className: "gthumb" }, "…");
-  const thumb = { el, url: null, dead: false };
-  thumb.destroy = () => { thumb.dead = true; if (thumb.url) URL.revokeObjectURL(thumb.url); };
+  const thumb = { el, lease: null, dead: false };
+  const release_ = () => { if (thumb.lease) release(thumb.lease); thumb.lease = null; };
+  const placeholder = (text, title) => { el.title = title; el.replaceChildren(text); };
+  thumb.destroy = () => { thumb.dead = true; release_(); };
+  thumb.gone = () => { thumb.destroy(); placeholder("видалено", "Оригінал видалено"); };
+  if (isGone(id)) { thumb.gone(); return thumb; }   // no request for an image we know is gone
   enqueueGallery(async () => {
+    if (thumb.dead) return;
+    const lease = acquire(id);
+    thumb.lease = lease;
     try {
-      const blob = await getBlob("/api/g/" + id + ".png");
+      await lease.promise;
       if (thumb.dead) return;
-      thumb.url = URL.createObjectURL(blob);
-      el.replaceChildren(h("img", { src: thumb.url, alt: "Оригінал" }));
+      el.replaceChildren(h("img", { src: lease.url, alt: "Оригінал" }));
     } catch (e) {
-      if (thumb.dead) return;
-      el.title = e && e.status === 404 ? "Оригінал видалено" : "Оригінал не вдалося завантажити";
-      el.replaceChildren(e && e.status === 404 ? "видалено" : "немає");
+      if (!thumb.dead) placeholder(e && e.status === 404 ? "видалено" : "немає", e && e.status === 404 ? "Оригінал видалено" : "Оригінал не вдалося завантажити");
     }
   });
   return thumb;
@@ -605,8 +737,8 @@ function makeGroup(parent, prompt) {
   const more = h("button", { type: "button", className: "more", hidden: true }, "Показати ще");
   const head = h("div", { className: "ghead" }, thumb.el,
     h("div", {}, h("b", {}, "з оригіналу"), h("div", { className: "mut small clip" }, prompt || "")));
-  const el = h("section", { className: "group" }, head, grid, more);
-  el.setAttribute("aria-label", "Модифікації оригіналу");
+  const el = h("section", { className: "group" + (isGone(parent) ? " gone" : "") }, head, grid, more);
+  el.setAttribute("aria-label", "Модифікації оригіналу" + (prompt ? ": " + short(prompt) : ""));
   const group = { el, rest: [], members: new Set() };
 
   group.addFirst = (list) => { list.forEach((t) => group.members.add(t)); grid.prepend(...list.map((t) => t.el)); };
@@ -615,10 +747,12 @@ function makeGroup(parent, prompt) {
     const batch = group.rest.splice(0, GROUP_PAGE).map((meta) => makeTile({ role: "modification", meta, group }));
     for (const t of batch) { group.members.add(t); grid.append(t.el); }
     more.hidden = group.rest.length === 0;
-    updateChrome();
     batch.forEach((t) => t.submit());
+    updateChrome();
   };
   more.addEventListener("click", group.page);
+
+  group.markGone = () => { el.classList.add("gone"); thumb.gone(); };
 
   group.drop = (t) => {
     group.members.delete(t);
@@ -637,12 +771,12 @@ function groupFor(parent, prompt, where) {
   if (!group) {
     group = makeGroup(parent, prompt);
     groups.set(parent, group);
+    $("groups")[where === "top" ? "prepend" : "append"](group.el);
     if (pendingGroups.has(parent)) {
       group.rest = pendingGroups.get(parent);
       pendingGroups.delete(parent);
       group.page();
     }
-    $("groups")[where === "top" ? "prepend" : "append"](group.el);
   } else if (where === "top") {
     $("groups").prepend(group.el);
   }
@@ -651,10 +785,18 @@ function groupFor(parent, prompt, where) {
 
 function showMoreGroups() {
   for (const [parent, metas] of [...pendingGroups].slice(0, GROUPS_PAGE)) groupFor(parent, metas[0].prompt, "bottom");
-  $("gmore").hidden = pendingGroups.size === 0;
   updateChrome();
 }
 $("gmore").addEventListener("click", showMoreGroups);
+
+// The hidden tab is built on first open only: no image of it is requested before.
+function buildMods() {
+  if (modsBuilt || !loaded) return;
+  modsBuilt = true;
+  for (const meta of store.mods) pendingGroups.set(meta.parent, [...(pendingGroups.get(meta.parent) || []), meta]);
+  showMoreStrip();
+  showMoreGroups();
+}
 
 /* ---------- modifications: start ---------- */
 function generateMods(payloads) {
@@ -670,8 +812,8 @@ function generateMods(payloads) {
     group.addFirst(made);
     fresh.unshift(...made);
   }
-  updateChrome();
   fresh.forEach((t) => t.submit());
+  updateChrome();
   if (fresh.length && !reducedMotion()) fresh[0].el.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
@@ -679,9 +821,8 @@ function generateModsFromForm() {
   if (isBusy($("mgo"))) return;
   $("mmsg").textContent = "";
   const picks = chosen();
-  if (!picks.length) return;
+  if (!startGuard(picks.length * state.mcount)) return;
   const change = $("change").value.trim();
-  coolDown(lockMod);
   const payloads = [];
   for (const t of picks) {
     for (let variation = 0; variation < state.mcount; variation++) payloads.push({ parent: t.meta.id, change, variation });
@@ -708,7 +849,7 @@ guarded($("dl"), async () => {
       save(t.blob || await getBlob("/api/g/" + t.meta.id + ".png"), t.meta.id + ".png");
     } else {
       const ids = picked.map((t) => encodeURIComponent(t.meta.id)).join(",");
-      save(await getBlob("/api/gallery/zip?ids=" + ids, "application/zip"), "images.zip");
+      save(await getBlob("/api/gallery/zip?ids=" + ids, "zip"), "images.zip");
     }
   } catch (e) {
     barNote(explain(e, "Не вдалося завантажити. Спробуйте ще раз."));
@@ -722,7 +863,12 @@ function forget(ids) {
   origRest = origRest.filter((m) => !gone.has(m.id));
   stripRest = stripRest.filter((m) => !gone.has(m.id));
   for (const id of gone) {
-    if (strip.has(id)) { strip.get(id).remove(); strip.delete(id); }
+    if (originalIds.delete(id)) {
+      const t = strip.get(id);
+      if (t) t.remove();
+      const g = groups.get(id);
+      if (g) g.markGone();
+    }
   }
 }
 
@@ -735,8 +881,6 @@ guarded($("del"), async () => {
   if (!res.ok) return barNote(res.error);
   picked.forEach((t) => t.remove());
   forget(ids);
-  $("more").hidden = origRest.length === 0;
-  $("smore").hidden = stripRest.length === 0;
   updateChrome();
 });
 
@@ -766,22 +910,21 @@ async function start() {
   if (o) {
     ready = true;
     store.originals = o.slice();
+    o.forEach((m) => originalIds.add(m.id));
     origRest = o.slice();
     stripRest = o.slice();
     showMoreOriginals();
-    showMoreStrip();
   } else {
-    $("note").textContent = originals.stale ? STALE : "Не вдалося завантажити галерею. Оновіть сторінку.";
+    const text = originals.stale ? STALE : "Не вдалося завантажити галерею. Оновіть сторінку.";
+    $("note").textContent = text;
+    $("mnote").textContent = text;
   }
 
   const m = listOf(mods);
-  if (m) {
-    store.mods = m.slice();
-    for (const meta of m) pendingGroups.set(meta.parent, [...(pendingGroups.get(meta.parent) || []), meta]);
-    showMoreGroups();
-  } else {
-    $("mnote").textContent = mods.stale ? STALE : "Не вдалося завантажити модифікації. Оновіть сторінку.";
-  }
+  if (m) store.mods = m.slice();
+  else $("mnote").textContent = mods.stale ? STALE : "Не вдалося завантажити модифікації. Оновіть сторінку.";
+  loaded = true;
+  if (active === "modifications") buildMods();
   lockGen("startup", false);
   lockMod("startup", false);
   updateChrome();
