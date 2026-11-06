@@ -15,6 +15,7 @@ from engine.library import STATUSES, Library, LibraryError
 
 
 MAX_QUICK_PROMPT = 1000
+MAX_CHANGE = galleries.MAX_CHANGE
 
 
 class Engine:
@@ -37,46 +38,77 @@ class Engine:
         (self.out_dir / name).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # free-form generator
-    def quick_image(self, prompt="", format="vertical", style=None, parent=None, variation=0):
-        if parent:
-            meta = self.gallery.get(parent)
-            broken = LibraryError("Метадані зображення пошкоджено.")
-            if not isinstance(meta, dict):
-                raise broken
-            base_prompt, size, style = meta.get("prompt"), meta.get("size"), meta.get("style")
-            if not (isinstance(base_prompt, str) and base_prompt.strip() and len(base_prompt) <= MAX_QUICK_PROMPT):
-                raise broken
-            if not (isinstance(size, str) and size in visuals.SIZES.values()):
-                raise broken
-            if style is not None and not (isinstance(style, str) and style in visuals.STYLES):
-                raise broken
-            if not isinstance(variation, int) or isinstance(variation, bool) or variation < 0:
-                raise LibraryError("Некоректний номер варіації.")
-        else:
-            if not isinstance(prompt, str) or not prompt.strip():
-                raise LibraryError("Опишіть, що потрібно згенерувати.")
-            base_prompt = prompt.strip()
-            if len(base_prompt) > MAX_QUICK_PROMPT:
-                raise LibraryError(f"Опис задовгий (до {MAX_QUICK_PROMPT} символів).")
-            if not isinstance(format, str) or format not in visuals.SIZES:
-                raise LibraryError(f"Невідомий формат. Доступні: {', '.join(visuals.SIZES)}")
-            if style in ("", None):
-                style = None
-            elif not isinstance(style, str) or style not in visuals.STYLES:
-                raise LibraryError(f"Невідомий стиль. Доступні: {', '.join(visuals.STYLES)}")
-            size = visuals.SIZES[format]
-            variation = None
-        final = visuals.quick_prompt(base_prompt, style, variation if parent else None)
+    def _store(self, make, **meta):
         gid = self.gallery.fresh_id()
+        dest = self.gallery.path(gid)
         try:
-            self.images.generate(final, self.gallery.path(gid), size=size)
-            return self.gallery.add(gid, base_prompt, size, parent=parent or None, style=style)
+            make(dest)
+            return self.gallery.add(gid, **meta)
         except BaseException:
-            self.gallery.path(gid).unlink(missing_ok=True)
+            dest.unlink(missing_ok=True)
             raise
 
-    def list_gallery(self):
-        return {"items": self.gallery.find()}
+    def quick_image(self, prompt="", format="vertical", style=None):
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise LibraryError("Опишіть, що потрібно згенерувати.")
+        base_prompt = prompt.strip()
+        if len(base_prompt) > MAX_QUICK_PROMPT:
+            raise LibraryError(f"Опис задовгий (до {MAX_QUICK_PROMPT} символів).")
+        if not isinstance(format, str) or format not in visuals.SIZES:
+            raise LibraryError(f"Невідомий формат. Доступні: {', '.join(visuals.SIZES)}")
+        if style in ("", None):
+            style = None
+        elif not isinstance(style, str) or style not in visuals.STYLES:
+            raise LibraryError(f"Невідомий стиль. Доступні: {', '.join(visuals.STYLES)}")
+        size = visuals.SIZES[format]
+        final = visuals.quick_prompt(base_prompt, style)
+
+        def make(dest):
+            self.images.generate(final, dest, size=size)
+
+        return self._store(make, prompt=base_prompt, size=size, style=style)
+
+    def _parent_meta(self, parent):
+        meta = self.gallery.get(parent)
+        broken = LibraryError("Метадані зображення пошкоджено.")
+        if not isinstance(meta, dict):
+            raise broken
+        base_prompt, size, style = meta.get("prompt"), meta.get("size"), meta.get("style")
+        if not (isinstance(base_prompt, str) and base_prompt.strip() and len(base_prompt) <= MAX_QUICK_PROMPT):
+            raise broken
+        if not (isinstance(size, str) and size in visuals.SIZES.values()):
+            raise broken
+        if style is not None and not (isinstance(style, str) and style in visuals.STYLES):
+            raise broken
+        src = self.gallery.path(parent)
+        missing = LibraryError("Оригінал не знайдено.")
+        try:
+            root = self.gallery.root.resolve()
+            if src.is_symlink() or not src.is_file() or src.resolve().parent != root:
+                raise missing
+        except OSError:
+            raise missing from None
+        return base_prompt, size, style, src
+
+    def modify_image(self, parent=None, change="", variation=0):
+        base_prompt, size, style, src = self._parent_meta(parent)
+        if change is None:
+            change = ""
+        if not isinstance(change, str) or len(change) > MAX_CHANGE:
+            raise LibraryError(f"Опис зміни задовгий (до {MAX_CHANGE} символів).")
+        change = change.strip() or None
+        if not isinstance(variation, int) or isinstance(variation, bool) or variation < 0:
+            raise LibraryError("Некоректний номер варіації.")
+        final = visuals.modify_prompt(base_prompt, change, variation)
+
+        def make(dest):
+            self.images.edit(final, src, dest, size=size)
+
+        return self._store(make, prompt=base_prompt, size=size, parent=parent, style=style,
+                                kind="modification", change=change)
+
+    def list_gallery(self, kind=None, parent=None):
+        return {"items": self.gallery.find(kind=kind, parent=parent)}
 
     def delete_gallery(self, ids):
         if not isinstance(ids, list):

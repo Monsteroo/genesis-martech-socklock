@@ -12,25 +12,7 @@ from engine.llm import LLMError
 from engine.service import Engine
 from engine.web import make_server
 from engine.web import MAX_BODY
-from tests.helpers import PNG_MAGIC, SAMPLE_BLOCKS, FakeImages, FakeLLM, make_root, segments_answer
-
-
-def variants_answer(n=5):
-    return {"variants": [{"hook": f"H{i}", "first_line": f"L{i}", "onscreen": f"O{i}"} for i in range(n)]}
-
-
-class BlockingLLM(FakeLLM):
-    """FakeLLM whose run() waits until released, to hold the server busy."""
-
-    def __init__(self, *answers):
-        super().__init__(*answers)
-        self.started = threading.Event()
-        self.release = threading.Event()
-
-    def run(self, prompt):
-        self.started.set()
-        self.release.wait(5)
-        return super().run(prompt)
+from tests.helpers import PNG_MAGIC, FakeImages, FakeLLM, make_root
 
 
 def raw_request(port, method, path, body=None, headers=None, host=None):
@@ -69,8 +51,7 @@ class HttpMixin:
 
 class WebTests(HttpMixin, unittest.TestCase):
     def setUp(self):
-        self.engine = Engine(make_root(), FakeLLM(variants_answer(5)))
-        self.engine.library.add("Socks", "lost", SAMPLE_BLOCKS)
+        self.engine = Engine(make_root(), FakeLLM(), images=FakeImages())
         self.server = make_server(self.engine, port=0)
         self.port = self.server.server_port
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -79,81 +60,49 @@ class WebTests(HttpMixin, unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
 
-    def test_index_contains_the_token_and_two_tabs(self):
-        status, html = self.request("GET", "/workflow")
+    @property
+    def auth(self):
+        return {"X-Token": self.server.token}
+
+    def test_index_contains_the_token(self):
+        status, html = self.request("GET", "/")
         self.assertEqual(status, 200)
         self.assertIn(self.server.token, html)
         self.assertNotIn("__TOKEN__", html)
-        self.assertIn("Оригінали", html)
-        self.assertIn("Модифікації", html)
 
     def test_post_without_token_is_forbidden(self):
-        status, _ = self.request("POST", "/api/variants", {"id": "o001", "instruction": "x", "count": 5})
+        status, _ = self.request("POST", "/api/gen", {"prompt": "x"})
         self.assertEqual(status, 403)
 
     def test_post_with_wrong_token_is_forbidden(self):
-        status, _ = self.request("POST", "/api/variants", {}, {"X-Token": "nope"})
+        status, _ = self.request("POST", "/api/gen", {}, {"X-Token": "nope"})
         self.assertEqual(status, 403)
 
     def test_foreign_host_header_is_forbidden(self):
         status, _ = self.request("GET", "/", host="evil.example")
         self.assertEqual(status, 403)
 
-    def test_variants_with_token(self):
-        status, text = self.request(
-            "POST", "/api/variants", {"id": "o001", "instruction": "5 hooks", "count": 5},
-            {"X-Token": self.server.token})
-        self.assertEqual(status, 200)
-        payload = json.loads(text)
-        self.assertTrue(payload["ok"])
-        self.assertEqual(len(payload["data"]), 5)
-
     def test_domain_error_is_a_400_with_message(self):
-        status, text = self.request(
-            "POST", "/api/variants", {"id": "o404", "instruction": "x", "count": 5},
-            {"X-Token": self.server.token})
+        status, text = self.request("POST", "/api/modify", {"parent": "g0000abcd", "change": "x"}, self.auth)
         self.assertEqual(status, 400)
         self.assertIn("не знайдено", json.loads(text)["error"])
 
-    def test_originals_listing_and_status_filter(self):
-        status, text = self.request("GET", "/api/originals?status=winner")
-        self.assertEqual(json.loads(text)["data"], [])
-        status, text = self.request("GET", "/api/originals?status=draft")
-        self.assertEqual(len(json.loads(text)["data"]), 1)
-        status, _ = self.request("GET", "/api/originals?status=zzz")
-        self.assertEqual(status, 400)
-
-    def test_status_change_via_api(self):
-        status, text = self.request("POST", "/api/status", {"id": "o001", "status": "winner"},
-                                    {"X-Token": self.server.token})
-        self.assertEqual(json.loads(text)["data"]["status"], "winner")
-
     def test_unknown_route_and_bad_json(self):
-        status, _ = self.request("POST", "/api/nope", {}, {"X-Token": self.server.token})
+        status, _ = self.request("POST", "/api/nope", {}, self.auth)
         self.assertEqual(status, 404)
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         bad = b"{not json"
-        conn.request("POST", "/api/pains", body=bad,
+        conn.request("POST", "/api/gen", body=bad,
                      headers={"X-Token": self.server.token, "Content-Length": str(len(bad))})
         self.assertEqual(conn.getresponse().status, 400)
         conn.close()
-
-    @property
-    def auth(self):
-        return {"X-Token": self.server.token}
-
-    def post_ok(self, path, body):
-        status, text = self.request("POST", path, body, self.auth)
-        self.assertEqual(status, 200, text)
-        payload = json.loads(text)
-        self.assertTrue(payload["ok"])
-        return payload["data"]
 
     def test_localhost_host_header_is_allowed(self):
         status, _ = self.request("GET", "/", host=f"localhost:{self.port}")
         self.assertEqual(status, 200)
 
     def test_visuals_route_reports_unavailable(self):
+        self.engine.images = FakeImages(available=(False, "Немає ключа."))
         status, text = self.request("GET", "/api/visuals")
         self.assertEqual(status, 200)
         data = json.loads(text)["data"]
@@ -162,38 +111,29 @@ class WebTests(HttpMixin, unittest.TestCase):
         status, _ = self.request("GET", "/api/visuals", host="evil.example")
         self.assertEqual(status, 403)
 
-    def test_unexpected_exception_is_a_500_and_releases_the_lock(self):
-        status, text = self.request("POST", "/api/compose", {"pain": "p", "reuse": [], "new": ["HOOK"]}, self.auth)
+    def test_visuals_route_reflects_the_provider(self):
+        status, text = self.request("GET", "/api/visuals")
+        self.assertEqual(json.loads(text)["data"], {"available": True, "reason": ""})
+
+    def test_unexpected_exception_is_a_500_and_releases_the_slot(self):
+        def boom(*args, **kwargs):
+            raise RuntimeError("secret")
+
+        self.engine.quick_image = boom
+        status, text = self.request("POST", "/api/gen", {"prompt": "x"}, self.auth)
         self.assertEqual(status, 500)
         self.assertEqual(json.loads(text), {"ok": False, "error": "Внутрішня помилка сервера"})
-        status, _ = self.request("POST", "/api/status", {"id": "o001", "status": "winner"}, self.auth)
+        del self.engine.quick_image
+        status, _ = self.request("POST", "/api/gen", {"prompt": "x"}, self.auth)
         self.assertEqual(status, 200)
 
     def test_non_ascii_token_is_forbidden_not_a_crash(self):
-        status, _ = self.request("POST", "/api/status", {}, {"X-Token": "t\u00e9st"})
+        status, _ = self.request("POST", "/api/gen", {}, {"X-Token": "t\u00e9st"})
         self.assertEqual(status, 403)
-
-    def test_second_concurrent_post_gets_409_and_first_completes(self):
-        llm = BlockingLLM(variants_answer(5))
-        self.engine.llm = llm
-        first = {}
-
-        def go():
-            first["result"] = self.request(
-                "POST", "/api/variants", {"id": "o001", "instruction": "x", "count": 5}, self.auth)
-
-        thread = threading.Thread(target=go)
-        thread.start()
-        self.assertTrue(llm.started.wait(5))
-        status, _ = self.request("POST", "/api/variants", {"id": "o001", "instruction": "x", "count": 5}, self.auth)
-        self.assertEqual(status, 409)
-        llm.release.set()
-        thread.join(5)
-        self.assertEqual(first["result"][0], 200)
 
     def _raw_post(self, content_length, body=b""):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
-        conn.putrequest("POST", "/api/pains", skip_host=True)
+        conn.putrequest("POST", "/api/gen", skip_host=True)
         conn.putheader("Host", f"127.0.0.1:{self.port}")
         conn.putheader("X-Token", self.server.token)
         conn.putheader("Content-Length", content_length)
@@ -219,174 +159,37 @@ class WebTests(HttpMixin, unittest.TestCase):
         self.assertFalse(json.loads(text)["ok"])
 
     def test_non_object_json_body_is_400(self):
-        status, text = self.request("POST", "/api/pains", ["x"], self.auth)
+        status, text = self.request("POST", "/api/gen", ["x"], self.auth)
         self.assertEqual(status, 400)
         self.assertEqual(json.loads(text)["error"], "Очікується JSON-об'єкт")
 
-    def test_oserror_from_engine_is_400_and_lock_is_released(self):
+    def test_oserror_from_engine_is_400_and_the_slot_is_released(self):
         def boom(*args, **kwargs):
             raise OSError("disk full")
 
-        self.engine.variants = boom
-        status, text = self.request("POST", "/api/variants", {"id": "o001", "instruction": "x"}, self.auth)
+        self.engine.quick_image = boom
+        status, text = self.request("POST", "/api/gen", {"prompt": "x"}, self.auth)
         self.assertEqual(status, 400)
         self.assertEqual(json.loads(text)["error"], "Помилка файлової системи")
-        status, _ = self.request("POST", "/api/status", {"id": "o001", "status": "testing"}, self.auth)
+        del self.engine.quick_image
+        status, _ = self.request("POST", "/api/gen", {"prompt": "x"}, self.auth)
         self.assertEqual(status, 200)
-
-    def test_pains_route(self):
-        text = ('Every single wash I lose one sock. Pairing socks after laundry is the worst chore. '
-                'Tried sock clips and rings. They fall off in the wash and then I lose those too.')
-        self.engine.llm = FakeLLM({"pains": [
-            {"pain": "Lost socks", "quotes": ["Every single wash I lose one sock."]}]})
-        data = self.post_ok("/api/pains", {"text": text})
-        self.assertEqual(data["pains"][0]["pain"], "Lost socks")
-
-    def test_concepts_route(self):
-        self.engine.llm = FakeLLM({"concepts": [{"angle": f"A{i}", "hook": f"H{i}"} for i in range(5)]})
-        data = self.post_ok("/api/concepts", {"pain": {"pain": "Lost socks", "quotes": ["q"]}})
-        self.assertEqual(len(data["concepts"]), 5)
-
-    def test_build_route(self):
-        self.engine.llm = FakeLLM({
-            "title": "T", "blocks": SAMPLE_BLOCKS,
-            "shot_list": ["a", "b", "c", "d", "e"]})
-        data = self.post_ok("/api/build", {
-            "pain": {"pain": "Lost socks", "quotes": ["q"]},
-            "concept": {"angle": "Mystery", "hook": "H"}, "status": "testing"})
-        self.assertEqual(data["id"], "o002")
-        self.assertEqual(data["status"], "testing")
-
-    def test_localize_route(self):
-        self.engine.llm = FakeLLM(segments_answer())
-        data = self.post_ok("/api/localize", {"id": "o001", "markets": ["de"]})
-        self.assertEqual(data["de"]["market"], "de")
-        self.assertEqual(len(data["de"]["segments"]), 6)
-
-    def test_compose_route(self):
-        self.engine.llm = FakeLLM({"blocks": [{"type": "HOOK", "text": "New hook"},
-                                              {"type": "PAIN", "text": "New pain"}]})
-        data = self.post_ok("/api/compose", {
-            "pain": "Lost socks",
-            "reuse": {t: "o001" for t in ("DEMO", "PROOF", "ONSCREEN", "CTA")},
-            "new": ["HOOK", "PAIN"]})
-        self.assertEqual(data["reuse_share"], 0.67)
-        self.assertEqual(len(data["blocks"]), 6)
-
-
-class ImageWebTests(HttpMixin, unittest.TestCase):
-    def setUp(self):
-        self.images = FakeImages()
-        self.engine = Engine(make_root(), FakeLLM(), images=self.images)
-        self.engine.library.add("Socks", "lost", SAMPLE_BLOCKS, shot_list=["one", "two"])
-        self.server = make_server(self.engine, port=0)
-        self.port = self.server.server_port
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
-
-    def tearDown(self):
-        self.server.shutdown()
-        self.server.server_close()
-
-    def test_post_image_then_get_png_with_token(self):
-        status, text = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1},
-                                    {"X-Token": self.server.token})
-        self.assertEqual(status, 200)
-        self.assertEqual(json.loads(text)["data"], {"id": "o001", "key": "shot-1", "cached": False})
-        status, body, ctype = self.request_raw("GET", "/api/image/o001/shot-1.png", headers={"X-Token": self.server.token})
-        self.assertEqual(status, 200)
-        self.assertEqual(ctype, "image/png")
-        self.assertTrue(body.startswith(PNG_MAGIC))
 
     def test_oserror_message_is_not_leaked(self):
-        self.images.fail = OSError("/secret/path/x")
-        status, text = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1},
-                                    {"X-Token": self.server.token})
+        self.engine.images.fail = OSError("/secret/path/x")
+        status, text = self.request("POST", "/api/gen", {"prompt": "x"}, self.auth)
         self.assertEqual(status, 400)
         self.assertNotIn("/secret/path", text)
         self.assertEqual(json.loads(text)["error"], "Помилка файлової системи")
-        self.images.fail = None
-        status, _ = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1},
-                                 {"X-Token": self.server.token})
-        self.assertEqual(status, 200)
 
-    def test_seven_digit_shot_route_is_not_served(self):
-        status, _, _ = self.request_raw("GET", "/api/image/o001/shot-1234567.png", headers={"X-Token": self.server.token})
-        self.assertEqual(status, 404)
-
-    def test_png_without_or_with_wrong_token_is_forbidden(self):
-        self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1}, {"X-Token": self.server.token})
-        for headers in ({}, {"X-Token": "nope"}):
-            status, _, _ = self.request_raw("GET", "/api/image/o001/shot-1.png", headers=headers)
-            self.assertEqual(status, 403)
-
-    def test_missing_png_is_404_and_bad_path_is_not_served(self):
-        status, _, _ = self.request_raw("GET", "/api/image/o001/shot-2.png", headers={"X-Token": self.server.token})
-        self.assertEqual(status, 404)
-        status, _, _ = self.request_raw("GET", "/api/image/o001/..%2F..%2Fsecret.png", headers={"X-Token": self.server.token})
-        self.assertEqual(status, 404)
-
-    def test_png_with_foreign_host_is_forbidden(self):
-        status, _, _ = self.request_raw("GET", "/api/image/o001/shot-1.png", headers={"X-Token": self.server.token},
-                                        host="evil.example")
-        self.assertEqual(status, 403)
-
-    def test_images_listing(self):
-        status, text = self.request("GET", "/api/images?id=o001")
-        self.assertEqual(json.loads(text)["data"], {"keys": []})
-        self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 2}, {"X-Token": self.server.token})
-        status, text = self.request("GET", "/api/images?id=o001")
-        self.assertEqual(json.loads(text)["data"], {"keys": ["shot-2"]})
-        status, _ = self.request("GET", "/api/images?id=o404")
-        self.assertEqual(status, 400)
-
-    def test_variant_image_route(self):
-        v = {"hook": "Where do lost socks go?", "first_line": "Every wash.", "onscreen": "Lost sock mystery"}
-        status, text = self.request("POST", "/api/image", {"kind": "variant", "id": "o001", "variant": v},
-                                    {"X-Token": self.server.token})
-        self.assertEqual(status, 200)
-        self.assertTrue(json.loads(text)["data"]["key"].startswith("variant-"))
-
-    def test_image_errors_are_400_with_a_message(self):
-        status, text = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 9},
-                                    {"X-Token": self.server.token})
-        self.assertEqual(status, 400)
-        self.assertIn("Немає кадру", json.loads(text)["error"])
-
-    def test_visuals_route_reflects_the_provider(self):
-        status, text = self.request("GET", "/api/visuals")
-        self.assertEqual(json.loads(text)["data"], {"available": True, "reason": ""})
-
-    def test_failing_provider_is_a_400_and_releases_the_lock(self):
-        self.images.fail = LLMError("boom")
-        headers = {"X-Token": self.server.token}
-        status, text = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1}, headers)
+    def test_failing_provider_is_a_400_and_releases_the_slot(self):
+        self.engine.images.fail = LLMError("boom")
+        status, text = self.request("POST", "/api/gen", {"prompt": "x"}, self.auth)
         self.assertEqual(status, 400)
         self.assertIn("boom", json.loads(text)["error"])
-        self.images.fail = None
-        status, _ = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1}, headers)
+        self.engine.images.fail = None
+        status, _ = self.request("POST", "/api/gen", {"prompt": "x"}, self.auth)
         self.assertEqual(status, 200)
-
-    def test_png_response_has_nosniff(self):
-        self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": 1}, {"X-Token": self.server.token})
-        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
-        conn.request("GET", "/api/image/o001/shot-1.png", headers={"X-Token": self.server.token})
-        resp = conn.getresponse()
-        resp.read()
-        self.assertEqual(resp.getheader("X-Content-Type-Options"), "nosniff")
-        conn.close()
-
-    def test_unknown_original_png_is_404(self):
-        status, _, _ = self.request_raw("GET", "/api/image/o999/shot-1.png", headers={"X-Token": self.server.token})
-        self.assertEqual(status, 404)
-
-    def test_repeated_post_is_cached_with_one_provider_call(self):
-        headers = {"X-Token": self.server.token}
-        body = {"kind": "shot", "id": "o001", "index": 1}
-        _, first = self.request("POST", "/api/image", body, headers)
-        _, second = self.request("POST", "/api/image", body, headers)
-        self.assertFalse(json.loads(first)["data"]["cached"])
-        self.assertTrue(json.loads(second)["data"]["cached"])
-        self.assertEqual(len(self.images.prompts), 1)
 
 
 class QuickWebTests(HttpMixin, unittest.TestCase):
@@ -404,16 +207,12 @@ class QuickWebTests(HttpMixin, unittest.TestCase):
         status, text = self.request("POST", "/api/gen", body, self.auth)
         return status, json.loads(text)
 
-    def test_root_is_the_simple_page_and_workflow_is_the_old_one(self):
+    def test_root_is_the_simple_page(self):
         status, html = self.request("GET", "/")
         self.assertEqual(status, 200)
         self.assertIn("Генератор зображень", html)
         self.assertIn(self.server.token, html)
         self.assertNotIn("__TOKEN__", html)
-        status, old = self.request("GET", "/workflow")
-        self.assertEqual(status, 200)
-        self.assertIn("Оригінали", old)
-        self.assertIn(self.server.token, old)
 
     def test_gen_without_a_token_is_forbidden(self):
         status, _ = self.request("POST", "/api/gen", {"prompt": "Socks"})
@@ -446,15 +245,8 @@ class QuickWebTests(HttpMixin, unittest.TestCase):
         status, _, _ = self.request_raw("GET", f"/api/g/{meta['id']}.png", headers=self.auth)
         self.assertEqual(status, 404)
 
-    def test_more_like_this_over_http(self):
-        _, first = self.gen({"prompt": "Socks", "format": "wide"})
-        status, second = self.gen({"parent": first["data"]["id"], "variation": 2})
-        self.assertEqual(status, 200)
-        self.assertEqual(second["data"]["parent"], first["data"]["id"])
-        self.assertEqual(self.fake.sizes, ["1536x1024", "1536x1024"])
-
     def test_validation_errors_are_400_with_a_message(self):
-        for body in ({"prompt": ""}, {"prompt": "x", "format": "huge"}, {"parent": "g0000abcd"}):
+        for body in ({"prompt": ""}, {"prompt": "x", "format": "huge"}):
             status, data = self.gen(body)
             self.assertEqual(status, 400, body)
             self.assertTrue(data["error"])
@@ -470,7 +262,7 @@ class QuickWebTests(HttpMixin, unittest.TestCase):
         self.assertEqual(status, 400)
 
     def test_gen_is_an_image_route_and_delete_needs_no_lock(self):
-        self.assertIn("/api/gen", web.IMAGE_ROUTES)
+        self.assertEqual(web.IMAGE_ROUTES, {"/api/gen", "/api/modify"})
         self.assertNotIn("/api/gallery/delete", web.IMAGE_ROUTES)
 
     def test_provider_errors_do_not_leak_and_release_the_slot(self):
@@ -489,8 +281,7 @@ class QuickWebTests(HttpMixin, unittest.TestCase):
 class QuickWebSemanticsTests(HttpMixin, unittest.TestCase):
     def make(self, images=None, llm=None, workers=2):
         self.fake = images or FakeImages()
-        self.engine = Engine(make_root(), llm or FakeLLM(variants_answer(5)), images=self.fake)
-        self.engine.library.add("Socks", "lost", SAMPLE_BLOCKS)
+        self.engine = Engine(make_root(), llm or FakeLLM(), images=self.fake)
         self.server = make_server(self.engine, port=0, image_workers=workers)
         self.port = self.server.server_port
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -545,19 +336,6 @@ class QuickWebSemanticsTests(HttpMixin, unittest.TestCase):
         self.release.set()
         worker.join(10)
 
-    def test_delete_works_while_a_text_request_holds_the_lock(self):
-        llm = BlockingLLM(variants_answer(5))
-        self.make(llm=llm)
-        _, data = self.gen({"prompt": "Socks"})
-        worker = threading.Thread(target=self.request, args=(
-            "POST", "/api/variants", {"id": "o001", "instruction": "x", "count": 5}, self.auth))
-        worker.start()
-        self.assertTrue(llm.started.wait(5))
-        status, _ = self.request("POST", "/api/gallery/delete", {"ids": [data["data"]["id"]]}, self.auth)
-        self.assertEqual(status, 200)
-        llm.release.set()
-        worker.join(10)
-
     def test_gen_runs_in_parallel_up_to_the_worker_count(self):
         self.make(self.blocking_images(), workers=2)
         threads = [threading.Thread(target=self.gen, args=({"prompt": f"block {n}"},)) for n in range(3)]
@@ -577,9 +355,8 @@ class QuickWebSemanticsTests(HttpMixin, unittest.TestCase):
         _, _, headers = self.request_headers("GET", f"/api/gallery/zip?ids={gid}", self.auth)
         self.assertEqual(headers["Content-Disposition"], 'attachment; filename="images.zip"')
         self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
-        for page in ("/", "/workflow"):
-            _, _, headers = self.request_headers("GET", page)
-            self.assertEqual(headers["X-Frame-Options"], "DENY")
+        _, _, headers = self.request_headers("GET", "/")
+        self.assertEqual(headers["X-Frame-Options"], "DENY")
 
     def test_zip_validation_and_dedup(self):
         self.make()
@@ -600,7 +377,7 @@ class QuickWebSemanticsTests(HttpMixin, unittest.TestCase):
         self.make()
         for exc, status, message in ((OSError("/secret/x"), 400, "Помилка файлової системи"),
                                      (RuntimeError("secret"), 500, "Внутрішня помилка сервера")):
-            def boom(exc=exc):
+            def boom(*args, exc=exc, **kwargs):
                 raise exc
             self.engine.list_gallery = boom
             code, text = self.request("GET", "/api/gallery")
@@ -613,33 +390,25 @@ class QuickWebSemanticsTests(HttpMixin, unittest.TestCase):
         status, text = self.request("POST", "/api/gen", {"prompt": "x", "format": ["x"]}, self.auth)
         self.assertEqual(status, 400)
         self.assertTrue(json.loads(text)["error"])
-        status, text = self.request("POST", "/api/variants", {"id": "o001", "instruction": "x", "count": [1]}, self.auth)  # TypeError
-        self.assertEqual((status, json.loads(text)["error"]), (400, "Некоректний запит."))
-        status, text = self.request("POST", "/api/status", {}, self.auth)  # KeyError
+        status, text = self.request("POST", "/api/gallery/delete", {}, self.auth)  # KeyError
         self.assertEqual((status, json.loads(text)["error"]), (400, "Некоректний запит."))
         status, text = self.request("POST", "/api/gallery/delete", {"ids": 5}, self.auth)
         self.assertEqual(status, 400)
         self.assertTrue(json.loads(text)["error"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ParallelImageTests(HttpMixin, unittest.TestCase):
     def make(self, images, workers=2):
-        self.engine = Engine(make_root(), FakeLLM(variants_answer(5)), images=images)
-        self.engine.library.add("Socks", "lost", SAMPLE_BLOCKS,
-                                shot_list=["s1", "s2", "s3", "s4"])
+        self.engine = Engine(make_root(), FakeLLM(), images=images)
         self.server = make_server(self.engine, port=0, image_workers=workers)
         self.port = self.server.server_port
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
+        self.auth = {"X-Token": self.server.token}
 
-    def post_shot(self, n, results):
-        status, text = self.request("POST", "/api/image", {"kind": "shot", "id": "o001", "index": n},
-                                    {"X-Token": self.server.token})
+    def post_gen(self, n, results):
+        status, text = self.request("POST", "/api/gen", {"prompt": f"p{n}"}, self.auth)
         results[n] = (status, json.loads(text))
 
     def test_images_run_in_parallel_up_to_the_worker_limit(self):
@@ -649,7 +418,7 @@ class ParallelImageTests(HttpMixin, unittest.TestCase):
         entered = threading.Semaphore(0)
 
         class BlockingImages(FakeImages):
-            def generate(self, prompt, dest):
+            def generate(self, prompt, dest, size=None):
                 with lock:
                     state["active"] += 1
                     state["max"] = max(state["max"], state["active"])
@@ -657,11 +426,11 @@ class ParallelImageTests(HttpMixin, unittest.TestCase):
                 release.wait(5)
                 with lock:
                     state["active"] -= 1
-                return super().generate(prompt, dest)
+                return super().generate(prompt, dest, size)
 
         self.make(BlockingImages(), workers=2)
         results = {}
-        threads = [threading.Thread(target=self.post_shot, args=(n, results)) for n in (1, 2, 3)]
+        threads = [threading.Thread(target=self.post_gen, args=(n, results)) for n in (1, 2, 3)]
         [t.start() for t in threads]
         self.assertTrue(entered.acquire(timeout=5))
         self.assertTrue(entered.acquire(timeout=5))
@@ -671,44 +440,46 @@ class ParallelImageTests(HttpMixin, unittest.TestCase):
         self.assertEqual(state["max"], 2)
         self.assertEqual({n: r[0] for n, r in results.items()}, {1: 200, 2: 200, 3: 200})
 
-    def test_text_requests_are_not_blocked_by_running_images(self):
-        release, entered = threading.Event(), threading.Event()
-
-        class BlockingImages(FakeImages):
-            def generate(self, prompt, dest):
-                entered.set()
-                release.wait(5)
-                return super().generate(prompt, dest)
-
-        self.make(BlockingImages(), workers=1)
-        results = {}
-        image = threading.Thread(target=self.post_shot, args=(1, results))
-        image.start()
-        self.assertTrue(entered.wait(5))
-        status, text = self.request("POST", "/api/variants", {"id": "o001", "instruction": "5 hooks", "count": 5},
-                                    {"X-Token": self.server.token})
-        self.assertEqual(status, 200)
-        release.set()
-        image.join(10)
-
     def test_a_full_queue_times_out_with_409(self):
         release, entered = threading.Event(), threading.Event()
 
         class BlockingImages(FakeImages):
-            def generate(self, prompt, dest):
+            def generate(self, prompt, dest, size=None):
                 entered.set()
                 release.wait(5)
-                return super().generate(prompt, dest)
+                return super().generate(prompt, dest, size)
 
         self.make(BlockingImages(), workers=1)
         results = {}
-        first = threading.Thread(target=self.post_shot, args=(1, results))
+        first = threading.Thread(target=self.post_gen, args=(1, results))
         first.start()
         self.assertTrue(entered.wait(5))
         with mock.patch("engine.web.IMAGE_QUEUE_TIMEOUT", 0.2):
-            self.post_shot(2, results)
+            self.post_gen(2, results)
         self.assertEqual(results[2][0], 409)
         self.assertIn("слоти", results[2][1]["error"])
+        release.set()
+        first.join(10)
+
+    def test_a_full_queue_also_times_out_modify_with_409(self):
+        release, entered = threading.Event(), threading.Event()
+
+        class BlockingEdits(FakeImages):
+            def edit(self, prompt, src, dest, size=None):
+                entered.set()
+                release.wait(5)
+                return super().edit(prompt, src, dest, size)
+
+        self.make(BlockingEdits(), workers=1)
+        oid = json.loads(self.request("POST", "/api/gen", {"prompt": "Socks"}, self.auth)[1])["data"]["id"]
+        body = {"parent": oid, "change": "x", "variation": 0}
+        first = threading.Thread(target=self.request, args=("POST", "/api/modify", body, self.auth))
+        first.start()
+        self.assertTrue(entered.wait(5))
+        with mock.patch("engine.web.IMAGE_QUEUE_TIMEOUT", 0.2):
+            status, text = self.request("POST", "/api/modify", body, self.auth)
+        self.assertEqual(status, 409)
+        self.assertIn("слоти", json.loads(text)["error"])
         release.set()
         first.join(10)
 
@@ -726,3 +497,84 @@ class ParallelImageTests(HttpMixin, unittest.TestCase):
         for value, expected in (("6", 6), ("0", 1), ("99", 8), ("junk", 4), ("", 4)):
             with mock.patch.dict(os.environ, {"IMAGE_WORKERS": value}):
                 self.assertEqual(web.image_workers_from_env(), expected)
+
+
+class ModifyWebTests(HttpMixin, unittest.TestCase):
+    def setUp(self):
+        self.fake = FakeImages()
+        self.engine = Engine(make_root(), FakeLLM(), images=self.fake)
+        self.server = make_server(self.engine, port=0, image_workers=2)
+        self.port = self.server.server_port
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.auth = {"X-Token": self.server.token}
+
+    def post(self, path, body):
+        status, text = self.request("POST", path, body, self.auth)
+        return status, json.loads(text)
+
+    def test_modify_over_http_and_gallery_filters(self):
+        _, orig = self.post("/api/gen", {"prompt": "Socks", "format": "square"})
+        oid = orig["data"]["id"]
+        self.assertEqual(orig["data"]["kind"], "original")
+        status, mod = self.post("/api/modify", {"parent": oid, "change": "evening light", "variation": 0})
+        self.assertEqual(status, 200)
+        self.assertEqual((mod["data"]["kind"], mod["data"]["parent"]), ("modification", oid))
+        status, text = self.request("GET", "/api/gallery?kind=modification&parent=" + oid)
+        self.assertEqual([m["id"] for m in json.loads(text)["data"]["items"]], [mod["data"]["id"]])
+        status, text = self.request("GET", "/api/gallery?kind=original")
+        self.assertEqual([m["id"] for m in json.loads(text)["data"]["items"]], [oid])
+
+    def test_modify_needs_a_token_and_validates(self):
+        status, _ = self.request("POST", "/api/modify", {"parent": "g0000abcd"})
+        self.assertEqual(status, 403)
+        for body in ({"parent": "g0000abcd"}, {"parent": "../x"}, {}):
+            status, data = self.post("/api/modify", body)
+            self.assertEqual(status, 400, body)
+        for qs in ("kind=bogus", "parent=../x"):
+            status, _ = self.request("GET", "/api/gallery?" + qs)
+            self.assertEqual(status, 400, qs)
+        self.assertEqual(self.fake.edits, [])
+
+    def test_gen_ignores_parent_fields_and_modify_is_an_image_route(self):
+        status, data = self.post("/api/gen", {"prompt": "Socks", "parent": "g0000abcd", "variation": 1})
+        self.assertEqual(status, 200)
+        self.assertIsNone(data["data"]["parent"])
+        self.assertEqual(web.IMAGE_ROUTES, {"/api/gen", "/api/modify"})
+
+    def test_removed_routes_and_pages_are_gone(self):
+        for path in ("/workflow", "/api/originals", "/api/images?id=o001", "/api/image/o001/shot-1.png"):
+            status, _ = self.request("GET", path, None, self.auth)
+            self.assertEqual(status, 404, path)
+        for path in ("/api/pains", "/api/concepts", "/api/build", "/api/status", "/api/variants", "/api/localize",
+                     "/api/compose", "/api/image"):
+            status, _ = self.request("POST", path, {}, self.auth)
+            self.assertEqual(status, 404, path)
+
+    def test_modify_runs_in_parallel_up_to_the_worker_count(self):
+        both = threading.Barrier(2, timeout=5)
+
+        class ParallelEdits(FakeImages):
+            def edit(self, prompt, src, dest, size=None):
+                both.wait()  # passes only if two edits are inside at the same time
+                return super().edit(prompt, src, dest, size)
+
+        engine = Engine(make_root(), FakeLLM(), images=ParallelEdits())
+        server = make_server(engine, port=0, image_workers=2)
+        self.port = server.server_port
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        auth = {"X-Token": server.token}
+        oid = json.loads(self.request("POST", "/api/gen", {"prompt": "Socks"}, auth)[1])["data"]["id"]
+        results = []
+        threads = [threading.Thread(target=lambda: results.append(
+            self.request("POST", "/api/modify", {"parent": oid, "change": "x", "variation": 0}, auth)[0])) for _ in range(2)]
+        [t.start() for t in threads]
+        [t.join(10) for t in threads]
+        self.assertEqual(results, [200, 200])
+
+
+if __name__ == "__main__":
+    unittest.main()

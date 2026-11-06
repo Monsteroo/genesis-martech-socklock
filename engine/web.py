@@ -13,23 +13,14 @@ from engine.llm import LLMError
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 MAX_BODY = 100_000
 GALLERY_PNG = re.compile(r"/api/g/(g[0-9a-f]{8})\.png")
-IMAGE_ROUTE = re.compile(r"/api/image/(o[0-9]{3})/((?:shot-[0-9]{1,6}|variant-[0-9a-f]{8}))\.png")
 
 ROUTES = {
-    "/api/pains": lambda e, b: e.pains(b["text"]),
-    "/api/concepts": lambda e, b: e.concepts(b["pain"]),
-    "/api/build": lambda e, b: e.build_original(b["pain"], b["concept"], b.get("status", "draft")),
-    "/api/status": lambda e, b: e.library.set_status(b["id"], b["status"]),
-    "/api/variants": lambda e, b: e.variants(b["id"], b["instruction"], int(b.get("count", 5))),
-    "/api/localize": lambda e, b: e.localize(b["id"], b["markets"]),
-    "/api/compose": lambda e, b: e.compose(b["pain"], b["reuse"], b["new"]),
-    "/api/image": lambda e, b: e.image(b),
-    "/api/gen": lambda e, b: e.quick_image(b.get("prompt", ""), b.get("format") or "vertical", b.get("style"),
-                                           b.get("parent"), b.get("variation", 0)),
+    "/api/gen": lambda e, b: e.quick_image(b.get("prompt", ""), b.get("format") or "vertical", b.get("style")),
+    "/api/modify": lambda e, b: e.modify_image(b.get("parent"), b.get("change", ""), b.get("variation", 0)),
     "/api/gallery/delete": lambda e, b: e.delete_gallery(b["ids"]),
 }
 
-IMAGE_ROUTES = {"/api/image", "/api/gen"}
+IMAGE_ROUTES = {"/api/gen", "/api/modify"}
 NO_LOCK_ROUTES = {"/api/gallery/delete"}
 IMAGE_QUEUE_TIMEOUT = 600
 
@@ -52,12 +43,8 @@ def _price_from_env():
 def make_server(engine, port=8780, image_workers=None):
     token = secrets.token_urlsafe(24)
     workers = image_workers or image_workers_from_env()
-    busy = threading.Lock()  # text requests run one at a time; images run up to `workers` in parallel
     slots = threading.BoundedSemaphore(workers)
-    pages = {
-        "/": (WEB_DIR / "generate.html").read_text(encoding="utf-8").replace("__TOKEN__", token),
-        "/workflow": (WEB_DIR / "index.html").read_text(encoding="utf-8").replace("__TOKEN__", token),
-    }
+    pages = {"/": (WEB_DIR / "generate.html").read_text(encoding="utf-8").replace("__TOKEN__", token)}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -111,12 +98,6 @@ def make_server(engine, port=8780, image_workers=None):
             url = urlparse(self.path)
             if url.path in pages:
                 return self._send(200, pages[url.path], "text/html; charset=utf-8", {"X-Frame-Options": "DENY"})
-            if url.path == "/api/originals":
-                status = parse_qs(url.query).get("status", [None])[0]
-                try:
-                    return self._json(200, {"ok": True, "data": engine.library.find(status or None)})
-                except LibraryError as exc:
-                    return self._json(400, {"ok": False, "error": str(exc)})
             if url.path == "/api/visuals":
                 ok, reason = engine.images.available()
                 return self._json(200, {"ok": True, "data": {"available": ok, "reason": reason}})
@@ -128,27 +109,13 @@ def make_server(engine, port=8780, image_workers=None):
                     "image_model": getattr(images, "model", ""),
                     "price_usd": _price_from_env(),
                 }})
-            if url.path == "/api/images":
-                original_id = parse_qs(url.query).get("id", [""])[0]
-                try:
-                    return self._json(200, {"ok": True, "data": engine.list_images(original_id)})
-                except LibraryError as exc:
-                    return self._json(400, {"ok": False, "error": str(exc)})
-            match = IMAGE_ROUTE.fullmatch(url.path)
-            if match:
-                if not self._token_ok():
-                    return self._json(403, {"ok": False, "error": "Невірний токен"})
-                try:
-                    path = engine.image_store.path(match.group(1), match.group(2))
-                except LibraryError as exc:
-                    return self._json(400, {"ok": False, "error": str(exc)})
-                try:
-                    data = path.read_bytes()
-                except OSError:
-                    return self._json(404, {"ok": False, "error": "Зображення немає"})
-                return self._send_bytes(200, data, "image/png")
             if url.path == "/api/gallery":
-                return self._json(200, {"ok": True, "data": engine.list_gallery()})
+                query = parse_qs(url.query)
+                try:
+                    data = engine.list_gallery(query.get("kind", [None])[0], query.get("parent", [None])[0])
+                except LibraryError as exc:
+                    return self._json(400, {"ok": False, "error": str(exc)})
+                return self._json(200, {"ok": True, "data": data})
             match = GALLERY_PNG.fullmatch(url.path)
             if match:
                 if not self._token_ok():
@@ -204,17 +171,9 @@ def make_server(engine, port=8780, image_workers=None):
             route = ROUTES.get(path)
             if route is None:
                 return self._json(404, {"ok": False, "error": "Не знайдено"})
-            is_image = path in IMAGE_ROUTES
-            lock = None if path in NO_LOCK_ROUTES else (slots if is_image else busy)
-            if lock is None:
-                acquired = True
-            elif is_image:
-                acquired = lock.acquire(timeout=IMAGE_QUEUE_TIMEOUT)
-            else:
-                acquired = lock.acquire(blocking=False)
-            if not acquired:
-                message = "Усі слоти генерації зайняті, спробуйте пізніше." if is_image else "Інший запит ще виконується."
-                return self._json(409, {"ok": False, "error": message})
+            lock = slots if path in IMAGE_ROUTES else None
+            if lock is not None and not lock.acquire(timeout=IMAGE_QUEUE_TIMEOUT):
+                return self._json(409, {"ok": False, "error": "Усі слоти генерації зайняті, спробуйте пізніше."})
             try:
                 self._json(200, {"ok": True, "data": route(engine, body)})
             except OSError:  # never echo str(exc): it can hold file paths

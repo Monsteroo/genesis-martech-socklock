@@ -16,12 +16,13 @@ class GalleryTests(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp()) / "gallery"
         self.g = gallery.Gallery(self.root)
 
-    def put(self, prompt="p", created=None, parent=None, png=True):
+    def put(self, prompt="p", created=None, parent=None, png=True, kind="original", change=None):
         gid = gallery.new_id()
         self.root.mkdir(parents=True, exist_ok=True)
         if png:
             self.g.path(gid).write_bytes(b"png-" + gid.encode())
-        self.g.add(gid, prompt, "1024x1536", parent=parent, style="product", created=created)
+        self.g.add(gid, prompt, "1024x1536", parent=parent, style="product", created=created,
+                   kind=kind, change=change)
         return gid
 
     def test_new_ids_have_the_right_shape_and_are_unique(self):
@@ -47,6 +48,46 @@ class GalleryTests(unittest.TestCase):
         self.assertEqual(meta["style"], "product")
         self.assertIsInstance(meta["created"], float)
         self.assertEqual(list(self.root.glob("*.part")), [])
+
+    def test_kind_and_change_roundtrip_and_defaults(self):
+        a = self.put("orig")
+        b = self.put("mod", parent=a, kind="modification", change="evening light")
+        self.assertEqual(self.g.get(a)["kind"], "original")
+        self.assertEqual((self.g.get(b)["kind"], self.g.get(b)["change"]), ("modification", "evening light"))
+        self.assertIsNone(self.g.get(a)["change"])
+
+    def test_find_filters_by_kind_and_parent(self):
+        a = self.put("orig-a", created=1.0)
+        b = self.put("orig-b", created=2.0)
+        m1 = self.put("m1", created=3.0, parent=a, kind="modification")
+        m2 = self.put("m2", created=4.0, parent=b, kind="modification")
+        self.assertEqual([m["id"] for m in self.g.find(kind="original")], [b, a])
+        self.assertEqual([m["id"] for m in self.g.find(kind="modification")], [m2, m1])
+        self.assertEqual([m["id"] for m in self.g.find(kind="modification", parent=a)], [m1])
+        self.assertEqual([m["id"] for m in self.g.find(parent=b)], [m2])
+
+    def test_find_rejects_bad_filters(self):
+        with self.assertRaises(LibraryError):
+            self.g.find(kind="bogus")
+        with self.assertRaises(LibraryError):
+            self.g.find(parent="../x")
+
+    def test_old_metadata_without_kind_is_classified_by_its_parent(self):
+        old_orig, old_mod = gallery.new_id(), gallery.new_id()
+        for gid, parent in ((old_orig, None), (old_mod, old_orig)):
+            self.root.mkdir(parents=True, exist_ok=True)
+            self.g.path(gid).write_bytes(b"png")
+            self.g.meta_path(gid).write_text(json.dumps({"id": gid, "prompt": "p", "size": "1024x1536",
+                                                         "parent": parent, "style": None, "created": 1.0}), encoding="utf-8")
+        found = {m["id"]: m["kind"] for m in self.g.find()}
+        self.assertEqual(found, {old_orig: "original", old_mod: "modification"})
+
+    def test_change_is_projected_safely(self):
+        gid = self.put("p")
+        meta = json.loads(self.g.meta_path(gid).read_text(encoding="utf-8"))
+        meta["change"] = 123
+        self.g.meta_path(gid).write_text(json.dumps(meta), encoding="utf-8")
+        self.assertIsNone(self.g.find()[0]["change"])
 
     def test_get_unknown_raises(self):
         with self.assertRaises(LibraryError):
@@ -113,7 +154,7 @@ class GalleryTests(unittest.TestCase):
         meta = json.loads(self.g.meta_path(gid).read_text(encoding="utf-8"))
         meta["secret"] = "x"
         self.g.meta_path(gid).write_text(json.dumps(meta), encoding="utf-8")
-        self.assertEqual(sorted(self.g.find()[0]), ["created", "id", "parent", "prompt", "size", "style"])
+        self.assertEqual(sorted(self.g.find()[0]), ["change", "created", "id", "kind", "parent", "prompt", "size", "style"])
 
     def test_find_order_is_deterministic_on_equal_created(self):
         ids = [self.put(str(i), created=5.0) for i in range(5)]

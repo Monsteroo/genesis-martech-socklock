@@ -302,20 +302,15 @@ class QuickImageTests(unittest.TestCase):
 
     def test_validation_never_calls_the_provider(self):
         for kwargs in ({"prompt": ""}, {"prompt": "   "}, {"prompt": "x" * 1001},
-                       {"prompt": "ok", "format": "huge"}, {"prompt": "ok", "style": "bogus"},
-                       {"prompt": "ok", "parent": "../x"}, {"prompt": "", "parent": "g0000abcd"}):
+                       {"prompt": "ok", "format": "huge"}, {"prompt": "ok", "style": "bogus"}):
             with self.assertRaises(LibraryError, msg=str(kwargs)):
                 self.engine.quick_image(**kwargs)
         self.assertEqual(self.fake.prompts, [])
 
-    def test_more_like_this_reuses_prompt_size_and_style_with_a_variation_hint(self):
-        first = self.engine.quick_image("Socks", "wide", "minimal")
-        second = self.engine.quick_image(parent=first["id"], variation=1)
-        self.assertEqual(second["parent"], first["id"])
-        self.assertEqual((second["prompt"], second["size"], second["style"]), ("Socks", "1536x1024", "minimal"))
-        self.assertIn(visuals.VARIATIONS[1], self.fake.prompts[1])
-        self.assertIn("Socks", self.fake.prompts[1])
-        self.assertEqual(self.fake.sizes, ["1536x1024", "1536x1024"])
+    def test_quick_image_no_longer_accepts_parent_or_variation(self):
+        for kwargs in ({"prompt": "ok", "parent": "g0000abcd"}, {"prompt": "ok", "variation": 1}):
+            with self.assertRaises(TypeError):
+                self.engine.quick_image(**kwargs)
 
     def test_a_provider_failure_leaves_nothing_behind(self):
         folder = self.root / "library" / "gallery"
@@ -353,30 +348,6 @@ class QuickImageTests(unittest.TestCase):
                 self.engine.quick_image("Socks")
         self.assertEqual(list((self.root / "library" / "gallery").glob("*")), [])
 
-    def _parent_with(self, text):
-        gid = "g0000abcd"
-        d = self.root / "library" / "gallery"
-        d.mkdir(parents=True, exist_ok=True)
-        (d / f"{gid}.png").write_bytes(b"x")
-        (d / f"{gid}.json").write_text(text, encoding="utf-8")
-        return gid
-
-    def test_corrupt_parent_metadata_never_calls_the_provider(self):
-        good = {"id": "g0000abcd", "prompt": "p", "size": "1024x1536", "style": None}
-        cases = [
-            "[1, 2]",
-            json.dumps({k: v for k, v in good.items() if k != "prompt"}),
-            json.dumps({**good, "prompt": 5}),
-            json.dumps({**good, "prompt": "x" * 5000}),
-            json.dumps({**good, "size": "99x99"}),
-            json.dumps({**good, "style": ["product"]}),
-        ]
-        for text in cases:
-            gid = self._parent_with(text)
-            with self.assertRaises(LibraryError, msg=text[:40]):
-                self.engine.quick_image(parent=gid, variation=0)
-        self.assertEqual(self.fake.prompts, [])
-
     def test_non_string_format_and_style_are_library_errors(self):
         for kwargs in ({"prompt": "ok", "format": ["x"]}, {"prompt": "ok", "style": {}},
                        {"prompt": "ok", "format": {}}, {"prompt": "ok", "style": ["a"]}):
@@ -392,13 +363,6 @@ class QuickImageTests(unittest.TestCase):
             self.engine.quick_image("ok", style="SECRET-STY")
         self.assertNotIn("SECRET-STY", str(c.exception))
 
-    def test_bad_variation_with_a_parent_is_rejected(self):
-        first = self.engine.quick_image("Socks")
-        for bad in (-1, True, "1", None, 1.5):
-            with self.assertRaises(LibraryError, msg=repr(bad)):
-                self.engine.quick_image(parent=first["id"], variation=bad)
-        self.assertEqual(len(self.fake.prompts), 1)
-
     def test_colliding_ids_are_never_reused(self):
         first = self.engine.quick_image("Socks")
         with mock.patch("engine.gallery.new_id", side_effect=[first["id"], "g00000002"]):
@@ -413,6 +377,97 @@ class QuickImageTests(unittest.TestCase):
         self.assertTrue(self.engine.gallery_zip([a["id"], b["id"]]).startswith(b"PK"))
         self.assertEqual(self.engine.delete_gallery([a["id"]]), {"deleted": 1})
         self.assertEqual([m["id"] for m in self.engine.list_gallery()["items"]], [b["id"]])
+
+class ModifyImageTests(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.fake = FakeImages()
+        self.engine = Engine(self.root, FakeLLM(), images=self.fake)
+        self.original = self.engine.quick_image("Striped socks on a floor", "wide", "minimal")
+
+    def test_originals_have_kind_original(self):
+        self.assertEqual(self.original["kind"], "original")
+        self.assertIsNone(self.original["parent"])
+
+    def test_a_modification_edits_the_parent_image(self):
+        meta = self.engine.modify_image(self.original["id"], "  make it evening light ", 0)
+        self.assertEqual((meta["kind"], meta["parent"], meta["change"]), ("modification", self.original["id"], "make it evening light"))
+        self.assertEqual((meta["size"], meta["style"]), ("1536x1024", "minimal"))
+        prompt, src, size = self.fake.edits[0]
+        self.assertIn("make it evening light", prompt)
+        self.assertIn("Striped socks on a floor", prompt)
+        self.assertEqual(src, str(self.root / "library" / "gallery" / f"{self.original['id']}.png"))
+        self.assertEqual(size, "1536x1024")
+        self.assertTrue((self.root / "library" / "gallery" / f"{meta['id']}.png").is_file())
+        self.assertEqual(len(self.fake.prompts), 1)  # only the original was generated from text
+
+    def test_without_a_change_a_variation_hint_is_used(self):
+        meta = self.engine.modify_image(self.original["id"], "", 2)
+        self.assertIsNone(meta["change"])
+        self.assertIn(visuals.VARIATIONS[2], self.fake.edits[0][0])
+
+    def test_validation_never_calls_the_provider(self):
+        for kwargs in ({"parent": "../x"}, {"parent": "g0000abcd"}, {"parent": self.original["id"], "change": "x" * 301},
+                       {"parent": self.original["id"], "change": ["x"]}, {"parent": self.original["id"], "variation": -1},
+                       {"parent": self.original["id"], "variation": True}, {"parent": self.original["id"], "variation": "1"},
+                       {"parent": self.original["id"], "variation": None}, {"parent": None}):
+            with self.assertRaises(LibraryError, msg=str(kwargs)):
+                self.engine.modify_image(**kwargs)
+        self.assertEqual(self.fake.edits, [])
+
+    def test_corrupt_parent_metadata_never_calls_the_provider(self):
+        gid = self.original["id"]
+        path = self.root / "library" / "gallery" / f"{gid}.json"
+        good = json.loads(path.read_text(encoding="utf-8"))
+        for bad in ([1], {**good, "prompt": 5}, {**good, "prompt": "x" * 5000}, {**good, "size": "9x9"},
+                    {**good, "style": ["x"]}, {k: v for k, v in good.items() if k != "prompt"}):
+            path.write_text(json.dumps(bad), encoding="utf-8")
+            with self.assertRaises(LibraryError, msg=str(bad)[:60]):
+                self.engine.modify_image(gid, "x", 0)
+        self.assertEqual(self.fake.edits, [])
+
+    def test_a_missing_parent_png_is_an_error(self):
+        (self.root / "library" / "gallery" / f"{self.original['id']}.png").unlink()
+        with self.assertRaises(LibraryError):
+            self.engine.modify_image(self.original["id"], "x", 0)
+        self.assertEqual(self.fake.edits, [])
+
+    def test_a_symlinked_parent_png_is_refused_without_a_provider_call(self):
+        folder = self.root / "library" / "gallery"
+        png = folder / f"{self.original['id']}.png"
+        outside = self.root / "outside.png"
+        outside.write_bytes(b"secret")
+        png.unlink()
+        png.symlink_to(outside)
+        with self.assertRaises(LibraryError) as c:
+            self.engine.modify_image(self.original["id"], "x", 0)
+        self.assertEqual(str(c.exception), "Оригінал не знайдено.")
+        self.assertEqual(self.fake.edits, [])
+
+    def test_the_longest_allowed_inputs_stay_within_the_prompt_limit(self):
+        long_parent = self.engine.quick_image("p" * 1000, "wide")
+        self.engine.modify_image(long_parent["id"], "c" * 300, 0)
+        self.assertLessEqual(len(self.fake.edits[0][0]), 4000)
+
+    def test_a_provider_failure_or_interrupt_leaves_no_files(self):
+        folder = self.root / "library" / "gallery"
+        before = sorted(p.name for p in folder.iterdir())
+        for exc in (LLMError("boom"), KeyboardInterrupt()):
+            engine = Engine(self.root, FakeLLM(), images=FakeImages(fail=exc))
+            with self.assertRaises(type(exc)):
+                engine.modify_image(self.original["id"], "x", 0)
+            self.assertEqual(sorted(p.name for p in folder.iterdir()), before)
+
+    def test_list_gallery_filters(self):
+        m = self.engine.modify_image(self.original["id"], "x", 0)
+        self.assertEqual([i["id"] for i in self.engine.list_gallery("original")["items"]], [self.original["id"]])
+        self.assertEqual([i["id"] for i in self.engine.list_gallery("modification", self.original["id"])["items"]], [m["id"]])
+
+    def test_deleting_an_original_keeps_its_modifications(self):
+        m = self.engine.modify_image(self.original["id"], "x", 0)
+        self.engine.delete_gallery([self.original["id"]])
+        self.assertEqual([i["id"] for i in self.engine.list_gallery("modification")["items"]], [m["id"]])
+
 
 if __name__ == "__main__":
     unittest.main()
