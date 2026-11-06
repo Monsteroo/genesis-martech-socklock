@@ -3,6 +3,8 @@ from engine.library import BLOCK_TYPES, LibraryError, check_blocks
 from engine.llm import LLMError
 from engine.llmjson import ask_json
 
+REQUIRED_TYPES = ("HOOK", "PAIN", "DEMO", "PROOF", "CTA")
+MAX_ONSCREEN_WORDS = 6
 
 _PUNCT = str.maketrans({
     "\u2018": "'", "\u2019": "'",
@@ -74,7 +76,8 @@ def write_script(llm, pain, concept, glossary, language="English"):
         "Напиши сценарій відео-реклами на ~20 секунд.\n"
         f"Біль: {pain['pain']}\nКут: {concept['angle']}\nХук-ідея: {concept['hook']}\nМова креативу: {language}.\n"
         + gl.to_prompt(glossary) + "\n"
-        f"Типи блоків лише з: {', '.join(BLOCK_TYPES)}; обов'язково HOOK і CTA. Також дай shot list (список кадрів).\n"
+        f"Типи блоків лише з: {', '.join(BLOCK_TYPES)}; обов'язково HOOK, PAIN, DEMO, PROOF і CTA. "
+        f"ONSCREEN — коротка фраза, не більше {MAX_ONSCREEN_WORDS} слів (необов'язковий блок). Також дай shot list (список кадрів).\n"
         'Поверни ЛИШЕ JSON: {"title":"...","blocks":[{"type":"HOOK","text":"..."}],"shot_list":["..."]}'
     )
 
@@ -85,8 +88,12 @@ def write_script(llm, pain, concept, glossary, language="English"):
             blocks = check_blocks(data.get("blocks"))
         except LibraryError as exc:
             raise ValueError(str(exc))
-        if not {"HOOK", "CTA"} <= {b["type"] for b in blocks}:
-            raise ValueError("потрібні блоки HOOK і CTA")
+        missing = [t for t in REQUIRED_TYPES if t not in {b["type"] for b in blocks}]
+        if missing:
+            raise ValueError(f"потрібні блоки: {', '.join(missing)}")
+        for b in blocks:
+            if b["type"] == "ONSCREEN" and len(b["text"].split()) > MAX_ONSCREEN_WORDS:
+                raise ValueError(f"ONSCREEN довший за {MAX_ONSCREEN_WORDS} слів")
         shots = data.get("shot_list")
         if not isinstance(shots, list) or not all(isinstance(s, str) for s in shots):
             raise ValueError("shot_list має бути списком рядків")

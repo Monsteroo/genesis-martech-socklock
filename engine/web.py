@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from engine import visuals
 from engine.library import LibraryError
 from engine.llm import LLMError
 
@@ -60,12 +61,16 @@ def make_server(engine, port=8780):
                     return self._json(200, {"ok": True, "data": engine.library.find(status or None)})
                 except LibraryError as exc:
                     return self._json(400, {"ok": False, "error": str(exc)})
+            if url.path == "/api/visuals":
+                ok, reason = visuals.available()
+                return self._json(200, {"ok": True, "data": {"available": ok, "reason": reason}})
             self._json(404, {"ok": False, "error": "Не знайдено"})
 
         def do_POST(self):
             if not self._host_ok():
                 return self._json(403, {"ok": False, "error": "Host не дозволено"})
-            if self.headers.get("X-Token") != token:
+            sent = self.headers.get("X-Token", "").encode("utf-8", "replace")
+            if not secrets.compare_digest(sent, token.encode("utf-8")):
                 return self._json(403, {"ok": False, "error": "Невірний токен"})
             try:
                 length = int(self.headers.get("Content-Length") or 0)
@@ -90,6 +95,8 @@ def make_server(engine, port=8780):
                 self._json(200, {"ok": True, "data": route(engine, body)})
             except (LLMError, LibraryError, KeyError, ValueError, TypeError, OSError) as exc:
                 self._json(400, {"ok": False, "error": str(exc)})
+            except Exception:  # a bug must not kill the connection silently or hold the busy lock
+                self._json(500, {"ok": False, "error": "Внутрішня помилка сервера"})
             finally:
                 busy.release()
 

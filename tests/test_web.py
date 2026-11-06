@@ -3,6 +3,7 @@ import json
 import threading
 import unittest
 
+from engine import visuals
 from engine.service import Engine
 from engine.web import make_server
 from engine.web import MAX_BODY
@@ -126,6 +127,26 @@ class WebTests(unittest.TestCase):
     def test_localhost_host_header_is_allowed(self):
         status, _ = self.request("GET", "/", host=f"localhost:{self.port}")
         self.assertEqual(status, 200)
+
+    def test_visuals_route_reports_unavailable(self):
+        status, text = self.request("GET", "/api/visuals")
+        self.assertEqual(status, 200)
+        data = json.loads(text)["data"]
+        self.assertFalse(data["available"])
+        self.assertEqual(data["reason"], visuals.REASON)
+        status, _ = self.request("GET", "/api/visuals", host="evil.example")
+        self.assertEqual(status, 403)
+
+    def test_unexpected_exception_is_a_500_and_releases_the_lock(self):
+        status, text = self.request("POST", "/api/compose", {"pain": "p", "reuse": [], "new": ["HOOK"]}, self.auth)
+        self.assertEqual(status, 500)
+        self.assertEqual(json.loads(text), {"ok": False, "error": "Внутрішня помилка сервера"})
+        status, _ = self.request("POST", "/api/status", {"id": "o001", "status": "winner"}, self.auth)
+        self.assertEqual(status, 200)
+
+    def test_non_ascii_token_is_forbidden_not_a_crash(self):
+        status, _ = self.request("POST", "/api/status", {}, {"X-Token": "t\u00e9st"})
+        self.assertEqual(status, 403)
 
     def test_second_concurrent_post_gets_409_and_first_completes(self):
         llm = BlockingLLM(variants_answer(5))

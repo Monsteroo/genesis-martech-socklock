@@ -48,6 +48,7 @@ h2{font-size:17px;margin:20px 0 6px}
   </label>
   <button class="go" id="btn-build">Написати скрипт і зберегти в бібліотеку</button>
   <div id="built"></div>
+  <div id="visuals" class="mut"></div>
 </section>
 
 <section id="s2">
@@ -166,6 +167,10 @@ $("btn-build").onclick = async () => {
   if (rec) renderOriginal($("built"), rec);
 };
 
+api("/api/visuals").then((v) => {
+  if (v && !v.available) $("visuals").textContent = "Візуальні чернетки: недоступно. " + v.reason;
+});
+
 /* ---------- tab 2 ---------- */
 let originals = [];
 const current = () => originals.find((o) => o.id === $("orig").value);
@@ -183,9 +188,23 @@ async function loadOriginals() {
 function showCurrent() {
   const rec = current();
   $("orig-view").replaceChildren();
+  renderReuseTypes();
   if (!rec) { $("orig-view").textContent = "Немає оригіналів з таким статусом. Створіть їх у вкладці 1."; return; }
   $("set-status").value = rec.status;
   renderOriginal($("orig-view"), rec);
+}
+
+const REUSE_DEFAULT = ["DEMO", "PROOF", "ONSCREEN", "CTA"];
+
+// Only block types that exist in the selected original can be reused; the rest are written anew.
+function renderReuseTypes() {
+  const rec = current();
+  const have = new Set(rec ? rec.blocks.map((b) => b.type) : []);
+  $("reuse-types").replaceChildren(...TYPES.map((t) => {
+    const cb = h("input", {type: "checkbox", value: t, checked: have.has(t) && REUSE_DEFAULT.includes(t),
+                           disabled: !have.has(t), style: "width:auto"});
+    return h("label", {className: "inline"}, cb, " " + t + (have.has(t) ? "" : " (немає в оригіналі)"));
+  }));
 }
 
 $("orig").onchange = showCurrent;
@@ -227,10 +246,7 @@ $("btn-localize").onclick = async () => {
       ...s.flags.map((f) => h("div", {className: "flag", textContent: "⚠ " + f})))))));
 };
 
-TYPES.forEach((t) => {
-  const cb = h("input", {type: "checkbox", value: t, checked: ["DEMO", "PROOF", "ONSCREEN", "CTA"].includes(t), style: "width:auto"});
-  $("reuse-types").append(h("label", {className: "inline"}, cb, " " + t));
-});
+renderReuseTypes();
 
 $("btn-compose").onclick = async () => {
   const rec = current();

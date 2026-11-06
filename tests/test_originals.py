@@ -94,6 +94,39 @@ class ScriptTests(unittest.TestCase):
         origin.write_script(fake, PAIN, CONCEPT, GLOSSARY)
         self.assertEqual(len(fake.prompts), 2)
 
+    def test_missing_proof_triggers_retry(self):
+        no_proof = dict(self.GOOD, blocks=[b for b in SAMPLE_BLOCKS if b["type"] != "PROOF"])
+        fake = FakeLLM(no_proof, self.GOOD)
+        result = origin.write_script(fake, PAIN, CONCEPT, GLOSSARY)
+        self.assertEqual(len(fake.prompts), 2)
+        self.assertIn("PROOF", {b["type"] for b in result["blocks"]})
+
+    def test_each_required_type_is_enforced(self):
+        for missing in ("HOOK", "PAIN", "DEMO", "PROOF", "CTA"):
+            broken = dict(self.GOOD, blocks=[b for b in SAMPLE_BLOCKS if b["type"] != missing])
+            fake = FakeLLM(broken, self.GOOD)
+            origin.write_script(fake, PAIN, CONCEPT, GLOSSARY)
+            self.assertEqual(len(fake.prompts), 2, missing)
+
+    def test_onscreen_is_optional(self):
+        no_onscreen = dict(self.GOOD, blocks=[b for b in SAMPLE_BLOCKS if b["type"] != "ONSCREEN"])
+        fake = FakeLLM(no_onscreen)
+        origin.write_script(fake, PAIN, CONCEPT, GLOSSARY)
+        self.assertEqual(len(fake.prompts), 1)
+
+    def test_long_onscreen_triggers_retry(self):
+        blocks = [dict(b) for b in SAMPLE_BLOCKS]
+        blocks[4]["text"] = "No more lonely socks in your drawer ever"  # 8 words
+        fake = FakeLLM(dict(self.GOOD, blocks=blocks), self.GOOD)
+        origin.write_script(fake, PAIN, CONCEPT, GLOSSARY)
+        self.assertEqual(len(fake.prompts), 2)
+
+    def test_prompt_states_block_and_onscreen_rules(self):
+        fake = FakeLLM(self.GOOD)
+        origin.write_script(fake, PAIN, CONCEPT, GLOSSARY)
+        self.assertIn("HOOK, PAIN, DEMO, PROOF і CTA", fake.prompts[0])
+        self.assertIn("ONSCREEN — коротка фраза, не більше 6 слів", fake.prompts[0])
+
 
 if __name__ == "__main__":
     unittest.main()
