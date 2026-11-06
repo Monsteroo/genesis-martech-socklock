@@ -1,8 +1,10 @@
 import http.client
+import io
 import json
 import os
 import threading
 import unittest
+import zipfile
 from unittest import mock
 
 from engine import web
@@ -32,6 +34,11 @@ class BlockingLLM(FakeLLM):
 
 
 def raw_request(port, method, path, body=None, headers=None, host=None):
+    status, payload, response_headers = raw_response(port, method, path, body, headers, host)
+    return status, payload, response_headers.get("Content-Type")
+
+
+def raw_response(port, method, path, body=None, headers=None, host=None):
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
     conn.putrequest(method, path, skip_host=True)
     conn.putheader("Host", host or f"127.0.0.1:{port}")
@@ -42,15 +49,19 @@ def raw_request(port, method, path, body=None, headers=None, host=None):
     conn.endheaders(data)
     resp = conn.getresponse()
     payload = resp.read()
-    ctype = resp.getheader("Content-Type")
+    response_headers = {k: v for k, v in resp.getheaders()}
     conn.close()
-    return resp.status, payload, ctype
+    return resp.status, payload, response_headers
 
 
 class HttpMixin:
     def request(self, method, path, body=None, headers=None, host=None):
         status, data, _ = raw_request(self.port, method, path, body, headers, host)
         return status, data.decode("utf-8")
+
+    def request_headers(self, method, path, headers=None, host=None):
+        """Returns (status, bytes, response headers dict)."""
+        return raw_response(self.port, method, path, None, headers, host)
 
     def request_raw(self, method, path, headers=None, host=None, body=None):
         return raw_request(self.port, method, path, body, headers, host)
@@ -473,6 +484,142 @@ class QuickWebTests(HttpMixin, unittest.TestCase):
             status, text = self.request("POST", "/api/gen", {"prompt": "Socks"}, {"X-Token": server.token})
             self.assertEqual(status, 400)
             self.assertIn("boom", json.loads(text)["error"])
+
+
+class QuickWebSemanticsTests(HttpMixin, unittest.TestCase):
+    def make(self, images=None, llm=None, workers=2):
+        self.fake = images or FakeImages()
+        self.engine = Engine(make_root(), llm or FakeLLM(variants_answer(5)), images=self.fake)
+        self.engine.library.add("Socks", "lost", SAMPLE_BLOCKS)
+        self.server = make_server(self.engine, port=0, image_workers=workers)
+        self.port = self.server.server_port
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.auth = {"X-Token": self.server.token}
+
+    def gen(self, body):
+        status, text = self.request("POST", "/api/gen", body, self.auth)
+        return status, json.loads(text)
+
+    def blocking_images(self):
+        outer = self
+        outer.release, outer.entered = threading.Event(), threading.Semaphore(0)
+
+        class Blocking(FakeImages):
+            def generate(self, prompt, dest, size=None):
+                if prompt.startswith("block"):
+                    outer.entered.release()
+                    outer.release.wait(5)
+                return super().generate(prompt, dest, size)
+
+        return Blocking()
+
+    def test_png_etag_304_and_delete_beats_the_cache(self):
+        self.make()
+        _, data = self.gen({"prompt": "Socks"})
+        gid = data["data"]["id"]
+        path = f"/api/g/{gid}.png"
+        status, _, headers = self.request_headers("GET", path, self.auth)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Cache-Control"], "private, no-cache")
+        etag = headers["ETag"]
+        cond = {**self.auth, "If-None-Match": etag}
+        status, body, _ = self.request_headers("GET", path, cond)
+        self.assertEqual((status, body), (304, b""))
+        status, _, _ = self.request_headers("GET", path, {"If-None-Match": etag})
+        self.assertEqual(status, 403)
+        self.request("POST", "/api/gallery/delete", {"ids": [gid]}, self.auth)
+        status, _, _ = self.request_headers("GET", path, cond)
+        self.assertEqual(status, 404)
+
+    def test_delete_works_while_all_image_slots_are_busy(self):
+        self.make(self.blocking_images(), workers=1)
+        _, data = self.gen({"prompt": "Socks"})
+        worker = threading.Thread(target=self.gen, args=({"prompt": "block"},))
+        worker.start()
+        self.assertTrue(self.entered.acquire(timeout=5))
+        status, text = self.request("POST", "/api/gallery/delete", {"ids": [data["data"]["id"]]}, self.auth)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(text)["data"], {"deleted": 1})
+        self.release.set()
+        worker.join(10)
+
+    def test_delete_works_while_a_text_request_holds_the_lock(self):
+        llm = BlockingLLM(variants_answer(5))
+        self.make(llm=llm)
+        _, data = self.gen({"prompt": "Socks"})
+        worker = threading.Thread(target=self.request, args=(
+            "POST", "/api/variants", {"id": "o001", "instruction": "x", "count": 5}, self.auth))
+        worker.start()
+        self.assertTrue(llm.started.wait(5))
+        status, _ = self.request("POST", "/api/gallery/delete", {"ids": [data["data"]["id"]]}, self.auth)
+        self.assertEqual(status, 200)
+        llm.release.set()
+        worker.join(10)
+
+    def test_gen_runs_in_parallel_up_to_the_worker_count(self):
+        self.make(self.blocking_images(), workers=2)
+        threads = [threading.Thread(target=self.gen, args=({"prompt": f"block {n}"},)) for n in range(3)]
+        [t.start() for t in threads]
+        self.assertTrue(self.entered.acquire(timeout=5))
+        self.assertTrue(self.entered.acquire(timeout=5))
+        self.assertFalse(self.entered.acquire(timeout=0.3))  # the third waits for a slot
+        self.release.set()
+        [t.join(10) for t in threads]
+
+    def test_response_headers(self):
+        self.make()
+        _, data = self.gen({"prompt": "Socks"})
+        gid = data["data"]["id"]
+        _, _, headers = self.request_headers("GET", f"/api/g/{gid}.png", self.auth)
+        self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+        _, _, headers = self.request_headers("GET", f"/api/gallery/zip?ids={gid}", self.auth)
+        self.assertEqual(headers["Content-Disposition"], 'attachment; filename="images.zip"')
+        self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+        for page in ("/", "/workflow"):
+            _, _, headers = self.request_headers("GET", page)
+            self.assertEqual(headers["X-Frame-Options"], "DENY")
+
+    def test_zip_validation_and_dedup(self):
+        self.make()
+        _, data = self.gen({"prompt": "Socks"})
+        gid = data["data"]["id"]
+        many = ",".join(f"g{i:08x}" for i in range(51))
+        for ids in (many, "bad!"):
+            status, _, _ = self.request_headers("GET", f"/api/gallery/zip?ids={ids}", self.auth)
+            self.assertEqual(status, 400, ids)
+        status, body, _ = self.request_headers("GET", f"/api/gallery/zip?ids={gid},{gid}", self.auth)
+        self.assertEqual(status, 200)
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            self.assertEqual(archive.namelist(), [f"{gid}.png"])
+        status, _, _ = self.request_headers("GET", "/api/gallery/zip?ids=g0000abcd")
+        self.assertEqual(status, 403)
+
+    def test_get_errors_are_json_without_a_traceback(self):
+        self.make()
+        for exc, status, message in ((OSError("/secret/x"), 400, "Помилка файлової системи"),
+                                     (RuntimeError("secret"), 500, "Внутрішня помилка сервера")):
+            def boom(exc=exc):
+                raise exc
+            self.engine.list_gallery = boom
+            code, text = self.request("GET", "/api/gallery")
+            self.assertEqual(code, status)
+            self.assertEqual(json.loads(text), {"ok": False, "error": message})
+            self.assertNotIn("secret", text)
+
+    def test_malformed_bodies_get_a_generic_400(self):
+        self.make()
+        status, text = self.request("POST", "/api/gen", {"prompt": "x", "format": ["x"]}, self.auth)
+        self.assertEqual(status, 400)
+        self.assertTrue(json.loads(text)["error"])
+        status, text = self.request("POST", "/api/variants", {"id": "o001", "instruction": "x", "count": [1]}, self.auth)  # TypeError
+        self.assertEqual((status, json.loads(text)["error"]), (400, "Некоректний запит."))
+        status, text = self.request("POST", "/api/status", {}, self.auth)  # KeyError
+        self.assertEqual((status, json.loads(text)["error"]), (400, "Некоректний запит."))
+        status, text = self.request("POST", "/api/gallery/delete", {"ids": 5}, self.auth)
+        self.assertEqual(status, 400)
+        self.assertTrue(json.loads(text)["error"])
 
 
 if __name__ == "__main__":
