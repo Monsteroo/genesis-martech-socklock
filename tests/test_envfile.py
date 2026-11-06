@@ -17,6 +17,9 @@ class ParseTests(unittest.TestCase):
     def test_garbage_lines_are_ignored(self):
         self.assertEqual(envfile.parse("no equals\n=novalue\nBAD KEY=1\nOK=1\n"), {"OK": "1"})
 
+    def test_comment_after_closing_quote_and_tab_after_export(self):
+        self.assertEqual(envfile.parse('A="abc" # note\nexport\tB=2\n'), {"A": "abc", "B": "2"})
+
     def test_crlf(self):
         self.assertEqual(envfile.parse("A=1\r\nB=2\r\n"), {"A": "1", "B": "2"})
 
@@ -37,6 +40,25 @@ class LoadTests(unittest.TestCase):
         env = {"A": "from-os", "B": ""}
         envfile.load_dotenv(self.write("A=file\nB=file\n"), env)
         self.assertEqual(env, {"A": "from-os", "B": "file"})
+
+    def test_bom_is_ignored(self):
+        path = Path(tempfile.mkdtemp()) / ".env"
+        path.write_bytes(b"\xef\xbb\xbfA=1\n")
+        env = {}
+        envfile.load_dotenv(path, env)
+        self.assertEqual(env, {"A": "1"})
+
+    def test_whitespace_only_os_value_counts_as_unset(self):
+        env = {"A": "  "}
+        envfile.load_dotenv(self.write("A=file\n"), env)
+        self.assertEqual(env, {"A": "file"})
+
+    def test_allowlist_limits_loaded_names(self):
+        env = {}
+        text = "OPENAI_API_KEY=k\nIMAGE_WORKERS=2\nHTTPS_PROXY=x\nSSL_CERT_FILE=y\n"
+        names = envfile.load_dotenv(self.write(text), env, allowed=envfile.ENGINE_VARS)
+        self.assertEqual(env, {"OPENAI_API_KEY": "k", "IMAGE_WORKERS": "2"})
+        self.assertEqual(sorted(names), ["IMAGE_WORKERS", "OPENAI_API_KEY"])
 
     def test_missing_file_is_fine(self):
         self.assertEqual(envfile.load_dotenv(Path(tempfile.mkdtemp()) / "nope", {}), [])

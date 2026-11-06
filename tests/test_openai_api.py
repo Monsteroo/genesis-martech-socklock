@@ -3,6 +3,7 @@ import json
 import os
 import unittest
 import urllib.error
+import urllib.request
 from unittest import mock
 
 from engine import llm, openai_api
@@ -61,6 +62,10 @@ class RequestJsonTests(EnvCase):
         self.assertNotIn(TEST_KEY, text)
         self.assertNotIn("sk-abcdefgh12345678", text)
 
+    def test_project_style_keys_are_redacted(self):
+        key = "sk-proj-abc_DEF-123456789012345"
+        self.assertNotIn(key, openai_api.redact(f"bad key {key} here"))
+
     def test_detail_is_truncated(self):
         t = FakeTransport(http_error(400, {"error": {"message": "x" * 1000}}))
         with self.assertRaises(OpenAIError) as ctx:
@@ -84,12 +89,13 @@ class RequestJsonTests(EnvCase):
             openai_api.request_json("GET", "/models", transport=t)
         self.assertEqual(len(t.requests), 1)
 
+    @unittest.skipIf(os.environ.get("RUN_OPENAI") == "1", "live run uses the real transport")
     def test_default_transport_is_the_guarded_one_in_offline_tests(self):
         with self.assertRaises(AssertionError):
             openai_api.request_json("GET", "/models")
 
 
-class RealTransportTests(unittest.TestCase):
+class RealTransportTests(EnvCase):
     def request(self):
         return {"method": "GET", "url": "https://api.openai.com/v1/models", "headers": {}, "body": None, "timeout": 5}
 
@@ -98,22 +104,71 @@ class RealTransportTests(unittest.TestCase):
         resp.__enter__.return_value = resp
         resp.status = 200
         resp.read.return_value = b"{}"
-        with mock.patch("engine.openai_api.urllib.request.urlopen", return_value=resp):
+        with mock.patch.object(openai_api, "_opener") as opener:
+            opener.open.return_value = resp
             self.assertEqual(openai_api.real_transport(self.request()), {"status": 200, "body": b"{}"})
 
     def test_http_error_becomes_a_status_response(self):
         err = urllib.error.HTTPError("u", 401, "Unauthorized", {}, io.BytesIO(b'{"error":{"message":"bad"}}'))
-        with mock.patch("engine.openai_api.urllib.request.urlopen", side_effect=err):
+        self.addCleanup(err.close)
+        with mock.patch.object(openai_api, "_opener") as opener:
+            opener.open.side_effect = err
             resp = openai_api.real_transport(self.request())
         self.assertEqual(resp["status"], 401)
         self.assertIn(b"bad", resp["body"])
 
     def test_network_errors_become_openai_errors(self):
         for exc in (urllib.error.URLError("boom"), TimeoutError("slow")):
-            with mock.patch("engine.openai_api.urllib.request.urlopen", side_effect=exc):
+            with mock.patch.object(openai_api, "_opener") as opener:
+                opener.open.side_effect = exc
                 with self.assertRaises(OpenAIError) as ctx:
                     openai_api.real_transport(self.request())
             self.assertIn("зв'язку", str(ctx.exception))
+
+    def test_redirects_are_never_followed(self):
+        req = urllib.request.Request("https://api.openai.com/v1/x")
+        self.assertIsNone(openai_api._NoRedirect().redirect_request(req, None, 302, "Found", {}, "https://evil.example/"))
+
+    def test_a_redirect_ends_as_a_readable_error(self):
+        err = urllib.error.HTTPError("u", 302, "Found", {}, io.BytesIO(b""))
+        self.addCleanup(err.close)
+        t = lambda request: self._via_opener(err, request)
+        with self.assertRaises(OpenAIError) as ctx:
+            openai_api.request_json("GET", "/models", transport=t)
+        self.assertIn("302", str(ctx.exception))
+
+    def _via_opener(self, err, request):
+        with mock.patch.object(openai_api, "_opener") as opener:
+            opener.open.side_effect = err
+            return openai_api.real_transport(request)
+
+    def test_unexpected_exceptions_do_not_leak_the_key(self):
+        with mock.patch.object(openai_api, "_opener") as opener:
+            opener.open.side_effect = ValueError(f"Invalid header value 'Bearer {TEST_KEY}'")
+            with self.assertRaises(OpenAIError) as ctx:
+                openai_api.real_transport(self.request())
+        self.assertNotIn("sk-test", str(ctx.exception))
+
+    def test_error_body_read_failure_becomes_an_openai_error(self):
+        class Broken(io.BytesIO):
+            def read(self, *a):
+                raise TimeoutError("slow")
+        err = urllib.error.HTTPError("u", 500, "x", {}, Broken(b""))
+        self.addCleanup(err.close)
+        with mock.patch.object(openai_api, "_opener") as opener:
+            opener.open.side_effect = err
+            with self.assertRaises(OpenAIError):
+                openai_api.real_transport(self.request())
+
+
+class ApiKeyTests(EnvCase):
+    def test_bad_characters_are_rejected_without_echoing_the_key(self):
+        for bad in ("sk-test-01234\n56789", "sk-test-0123456789abcdeф", "sk-test 0123456789"):
+            with mock.patch.dict(os.environ, {"OPENAI_API_KEY": bad}):
+                with self.assertRaises(OpenAIError) as ctx:
+                    openai_api.api_key()
+            self.assertNotIn(bad.strip(), str(ctx.exception))
+            self.assertNotIn("sk-test", str(ctx.exception))
 
 
 class ListModelsTests(EnvCase):

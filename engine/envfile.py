@@ -9,12 +9,16 @@ def parse(text):
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
-        if line.startswith("export "):
-            line = line[len("export "):].lstrip()
+        parts = line.split(None, 1)
+        if len(parts) == 2 and parts[0] == "export":
+            line = parts[1]
+            if "=" not in line:
+                continue
         key, value = line.split("=", 1)
         key, value = key.strip(), value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
+        closing = value.find(value[0], 1) if value and value[0] in "\"'" else -1
+        if closing > 0:
+            value = value[1:closing]
         elif " #" in value:
             value = value.split(" #", 1)[0].rstrip()
         if key and key.replace("_", "").isalnum():
@@ -22,15 +26,23 @@ def parse(text):
     return values
 
 
-def load_dotenv(path, environ=None):
-    """Load KEY=VALUE pairs into `environ` (default os.environ) without overriding non-empty values. Returns the names loaded."""
+ENGINE_VARS = ("OPENAI_", "IMAGE_WORKERS", "DEMO_IMAGE_DELAY", "ENGINE_BACKEND")
+
+
+def _allowed(key, allowed):
+    return allowed is None or any(key.startswith(a) if a.endswith("_") else key == a for a in allowed)
+
+
+def load_dotenv(path, environ=None, allowed=None):
+    """Load KEY=VALUE pairs into `environ` (default os.environ) without overriding non-empty values. Returns the names loaded.
+    `allowed` (exact names or prefixes ending in `_`) limits which keys are taken; None means all."""
     environ = os.environ if environ is None else environ
     path = Path(path)
     if not path.is_file():
         return []
     loaded = []
-    for key, value in parse(path.read_text(encoding="utf-8")).items():
-        if not environ.get(key):
+    for key, value in parse(path.read_text(encoding="utf-8-sig")).items():
+        if _allowed(key, allowed) and not (environ.get(key) or "").strip():
             environ[key] = value
             loaded.append(key)
     return loaded

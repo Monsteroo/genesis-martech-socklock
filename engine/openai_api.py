@@ -32,7 +32,22 @@ def api_key():
         raise OpenAIError(
             "Не задано OPENAI_API_KEY. Додайте ключ у файл .env (рядок OPENAI_API_KEY=...) або у змінні середовища."
         )
+    if not re.fullmatch(r"[\x21-\x7e]+", key):
+        raise OpenAIError(
+            "OPENAI_API_KEY містить недопустимі символи (пробіли, переноси рядка або не-ASCII літери). "
+            "Скопіюйте ключ із платформи ще раз."
+        )
     return key
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow redirects: they would forward the Authorization header to another host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
 
 
 def real_transport(request):
@@ -40,12 +55,19 @@ def real_transport(request):
         request["url"], data=request.get("body"), method=request["method"], headers=request["headers"]
     )
     try:
-        with urllib.request.urlopen(req, timeout=request["timeout"]) as resp:
+        with _opener.open(req, timeout=request["timeout"]) as resp:
             return {"status": resp.status, "body": resp.read()}
     except urllib.error.HTTPError as exc:
-        return {"status": exc.code, "body": exc.read()}
+        try:
+            return {"status": exc.code, "body": exc.read()}
+        except Exception as inner:
+            raise OpenAIError(f"Немає зв'язку з OpenAI API ({type(inner).__name__}). Автоматичного повтору немає.") from None
+        finally:
+            exc.close()
     except (urllib.error.URLError, OSError) as exc:  # TimeoutError is an OSError
         raise OpenAIError(f"Немає зв'язку з OpenAI API ({type(exc).__name__}). Автоматичного повтору немає.") from None
+    except Exception as exc:
+        raise OpenAIError(f"Помилка запиту до OpenAI API ({type(exc).__name__}). Автоматичного повтору немає.") from None
 
 
 DEFAULT_TRANSPORT = real_transport
