@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SockLock Creative Engine</title>
+<style>
+:root{--bg:#fff;--fg:#1a1a1a;--mut:#666;--line:#ddd;--acc:#1f4fd8;--warn:#b45309;--err:#c62828}
+@media (prefers-color-scheme:dark){:root{--bg:#161616;--fg:#eee;--mut:#aaa;--line:#333;--acc:#7aa2ff;--warn:#f0b35a;--err:#ff8a80}}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
+main{max-width:860px;margin:0 auto;padding:16px}
+nav{display:flex;gap:8px;border-bottom:1px solid var(--line);margin-bottom:16px}
+nav button{background:none;border:0;padding:10px 14px;font:inherit;color:var(--mut);cursor:pointer;border-bottom:2px solid transparent}
+nav button.on{color:var(--fg);border-color:var(--acc)}
+section{display:none}
+section.on{display:block}
+textarea,input,select{width:100%;box-sizing:border-box;padding:8px;font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px}
+textarea{min-height:140px}
+button.go{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 14px;font:inherit;cursor:pointer;margin:8px 0}
+button.go:disabled{opacity:.5;cursor:wait}
+.card{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0;display:block}
+.flag{color:var(--warn);font-size:13px}
+.mut{color:var(--mut);font-size:13px}
+#err{color:var(--err);min-height:1.4em}
+label.inline{display:inline-block;margin-right:12px}
+pre{white-space:pre-wrap;margin:4px 0;font:inherit}
+h2{font-size:17px;margin:20px 0 6px}
+</style>
+</head>
+<body>
+<main>
+<h1>SockLock Creative Engine</h1>
+<nav>
+  <button id="t1" class="on">1. Оригінали</button>
+  <button id="t2">2. Модифікації</button>
+</nav>
+<div id="err"></div>
+
+<section id="s1" class="on">
+  <h2>Текст з болями аудиторії</h2>
+  <textarea id="text" placeholder="Встав коментарі (Reddit, відгуки)…"></textarea>
+  <button class="go" id="btn-pains">Знайти болі</button>
+  <div id="pains"></div>
+  <button class="go" id="btn-concepts">Запропонувати концепти</button>
+  <div id="concepts"></div>
+  <label>Статус нового оригіналу
+    <select id="new-status"><option>draft</option><option>testing</option><option>winner</option></select>
+  </label>
+  <button class="go" id="btn-build">Написати скрипт і зберегти в бібліотеку</button>
+  <div id="built"></div>
+</section>
+
+<section id="s2">
+  <h2>Оригінал з бібліотеки</h2>
+  <select id="orig"></select>
+  <label class="inline"><input type="checkbox" id="show-all" style="width:auto"> показати не лише winner</label>
+  <label class="inline">Статус:
+    <select id="set-status" style="width:auto"><option>draft</option><option>testing</option><option>winner</option></select>
+  </label>
+  <button class="go" id="btn-status">Змінити статус</button>
+  <div id="orig-view" class="mut"></div>
+
+  <h2>Варіації</h2>
+  <input id="instruction" value="5 різних хуків, кут цікавості">
+  <label class="inline">Кількість <input id="count" type="number" min="1" max="20" value="5" style="width:80px"></label>
+  <button class="go" id="btn-variants">Згенерувати варіації</button>
+  <div id="variants"></div>
+
+  <h2>Локалізація</h2>
+  <div id="markets"></div>
+  <button class="go" id="btn-localize">Локалізувати</button>
+  <div id="localized"></div>
+
+  <h2>Збірка з блоків</h2>
+  <input id="compose-pain" placeholder="Біль для нових блоків">
+  <div class="mut">Позначені типи беруться з обраного оригіналу, решта пишеться заново.</div>
+  <div id="reuse-types"></div>
+  <button class="go" id="btn-compose">Зібрати</button>
+  <div id="composed"></div>
+</section>
+</main>
+
+<script>
+const TOKEN = "__TOKEN__";
+const COMPOSE_TYPES = ["HOOK", "PAIN", "DEMO", "PROOF", "CTA"];  // ONSCREEN is not offered: demo compose answer covers HOOK+PAIN only
+const MARKETS = ["de", "fr", "es", "it", "pl"];
+const $ = (id) => document.getElementById(id);
+
+function h(tag, props, ...kids) {
+  const e = document.createElement(tag);
+  Object.assign(e, props || {});
+  for (const k of kids) e.append(k);
+  return e;
+}
+
+async function api(path, payload) {
+  $("err").textContent = "";
+  const buttons = [...document.querySelectorAll("button.go")];
+  buttons.forEach((b) => (b.disabled = true));
+  try {
+    const res = payload === undefined
+      ? await fetch(path)
+      : await fetch(path, {
+          method: "POST",
+          headers: {"Content-Type": "application/json", "X-Token": TOKEN},
+          body: JSON.stringify(payload),
+        });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error);
+    return json.data;
+  } catch (e) {
+    $("err").textContent = "Помилка: " + e.message;
+    return null;
+  } finally {
+    buttons.forEach((b) => (b.disabled = false));
+  }
+}
+
+function radioList(box, items, name, label, onPick) {
+  box.replaceChildren();
+  items.forEach((item) => {
+    const r = h("input", {type: "radio", name, style: "width:auto"});
+    r.onchange = () => onPick(item);
+    box.append(h("label", {className: "card"}, r, " ", label(item)));
+  });
+}
+
+function renderOriginal(box, rec) {
+  box.replaceChildren(h("div", {className: "card"},
+    h("b", {textContent: `${rec.id} · ${rec.title} [${rec.status}]`}),
+    h("pre", {textContent: rec.blocks.map((b) => `[${b.type}] ${b.text}`).join("\n")}),
+    h("div", {className: "mut", textContent: "Shot list:"}),
+    h("pre", {textContent: rec.shot_list.map((s, i) => `${i + 1}. ${s}`).join("\n")})));
+}
+
+/* ---------- tab 1 ---------- */
+let chosenPain = null, chosenConcept = null;
+
+$("btn-pains").onclick = async () => {
+  chosenPain = null; chosenConcept = null;
+  $("concepts").replaceChildren(); $("built").replaceChildren();
+  const data = await api("/api/pains", {text: $("text").value});
+  if (!data) return;
+  radioList($("pains"), data.pains, "pain",
+    (p) => h("span", {}, h("b", {textContent: p.pain}),
+      h("div", {className: "mut", textContent: p.quotes.map((q) => "«" + q + "»").join(" ")})),
+    (p) => { chosenPain = p; });
+  if (data.dropped_quotes) {
+    $("pains").append(h("div", {className: "flag", textContent: "Відкинуто вигаданих цитат: " + data.dropped_quotes}));
+  }
+};
+
+$("btn-concepts").onclick = async () => {
+  if (!chosenPain) { $("err").textContent = "Спочатку оберіть біль."; return; }
+  chosenConcept = null;
+  const data = await api("/api/concepts", {pain: chosenPain});
+  if (!data) return;
+  radioList($("concepts"), data.concepts, "concept",
+    (c) => h("span", {}, h("b", {textContent: c.angle}), h("div", {textContent: c.hook})),
+    (c) => { chosenConcept = c; });
+};
+
+$("btn-build").onclick = async () => {
+  if (!chosenPain || !chosenConcept) { $("err").textContent = "Оберіть біль і концепт."; return; }
+  const rec = await api("/api/build", {pain: chosenPain, concept: chosenConcept, status: $("new-status").value});
+  if (rec) renderOriginal($("built"), rec);
+};
+
+/* ---------- tab 2 ---------- */
+let originals = [];
+const current = () => originals.find((o) => o.id === $("orig").value);
+
+async function loadOriginals() {
+  const list = await api("/api/originals" + ($("show-all").checked ? "" : "?status=winner"));
+  if (!list) return;
+  originals = list;
+  const sel = $("orig");
+  sel.replaceChildren();
+  list.forEach((o) => sel.append(h("option", {value: o.id, textContent: `${o.id} · ${o.title} [${o.status}]`})));
+  showCurrent();
+}
+
+function showCurrent() {
+  const rec = current();
+  $("orig-view").replaceChildren();
+  if (!rec) { $("orig-view").textContent = "Немає оригіналів з таким статусом. Створіть їх у вкладці 1."; return; }
+  $("set-status").value = rec.status;
+  renderOriginal($("orig-view"), rec);
+}
+
+$("orig").onchange = showCurrent;
+$("show-all").onchange = loadOriginals;
+
+$("btn-status").onclick = async () => {
+  const rec = current();
+  if (!rec) return;
+  if (await api("/api/status", {id: rec.id, status: $("set-status").value})) loadOriginals();
+};
+
+$("btn-variants").onclick = async () => {
+  const rec = current();
+  if (!rec) { $("err").textContent = "Оберіть оригінал."; return; }
+  const data = await api("/api/variants", {id: rec.id, instruction: $("instruction").value, count: Number($("count").value)});
+  if (!data) return;
+  $("variants").replaceChildren(...data.map((v, i) => h("div", {className: "card"},
+    h("b", {textContent: `${i + 1}. ${v.hook}`}),
+    h("div", {textContent: v.first_line}),
+    h("div", {className: "mut", textContent: "На екрані: " + v.onscreen}))));
+};
+
+MARKETS.forEach((m) => {
+  const cb = h("input", {type: "checkbox", value: m, checked: m === "de" || m === "fr", style: "width:auto"});
+  $("markets").append(h("label", {className: "inline"}, cb, " " + m.toUpperCase()));
+});
+
+$("btn-localize").onclick = async () => {
+  const rec = current();
+  const markets = [...document.querySelectorAll("#markets input:checked")].map((c) => c.value);
+  if (!rec || !markets.length) { $("err").textContent = "Оберіть оригінал і ринок."; return; }
+  const data = await api("/api/localize", {id: rec.id, markets});
+  if (!data) return;
+  $("localized").replaceChildren(...Object.values(data).map((res) => h("div", {className: "card"},
+    h("b", {textContent: res.market.toUpperCase() + (res.needs_review ? "  ⚠ потрібна вичитка" : "  ✓")}),
+    ...res.segments.map((s) => h("div", {},
+      h("div", {className: "mut", textContent: `${s.id} ${s.type}: ${s.source}`}),
+      h("div", {textContent: s.text}),
+      ...s.flags.map((f) => h("div", {className: "flag", textContent: "⚠ " + f})))))));
+};
+
+COMPOSE_TYPES.forEach((t) => {
+  const cb = h("input", {type: "checkbox", value: t, checked: ["DEMO", "PROOF", "CTA"].includes(t), style: "width:auto"});
+  $("reuse-types").append(h("label", {className: "inline"}, cb, " " + t));
+});
+
+$("btn-compose").onclick = async () => {
+  const rec = current();
+  if (!rec) { $("err").textContent = "Оберіть оригінал."; return; }
+  const reuse = {}, fresh = [];
+  document.querySelectorAll("#reuse-types input").forEach((c) => (c.checked ? (reuse[c.value] = rec.id) : fresh.push(c.value)));
+  const data = await api("/api/compose", {pain: $("compose-pain").value, reuse, new: fresh});
+  if (!data) return;
+  $("composed").replaceChildren(h("div", {className: "card"},
+    h("b", {textContent: `Частка повторно використаних блоків: ${Math.round(data.reuse_share * 100)}%`}),
+    ...data.blocks.map((b) => h("div", {},
+      h("span", {className: "mut", textContent: `[${b.type}] ${b.reused ? "з " + b.from : "нове"}: `}),
+      h("span", {textContent: b.text})))));
+};
+
+/* ---------- tabs ---------- */
+function tab(n) {
+  [1, 2].forEach((i) => {
+    $("s" + i).classList.toggle("on", i === n);
+    $("t" + i).classList.toggle("on", i === n);
+  });
+  if (n === 2) loadOriginals();
+}
+$("t1").onclick = () => tab(1);
+$("t2").onclick = () => tab(2);
+</script>
+</body>
+</html>
