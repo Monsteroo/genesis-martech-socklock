@@ -67,13 +67,20 @@ def make_server(engine, port=8765):
                 return self._json(403, {"ok": False, "error": "Host не дозволено"})
             if self.headers.get("X-Token") != token:
                 return self._json(403, {"ok": False, "error": "Невірний токен"})
-            length = int(self.headers.get("Content-Length") or 0)
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
+            if length < 0:
+                return self._json(400, {"ok": False, "error": "Некоректний Content-Length"})
             if length > MAX_BODY:
                 return self._json(413, {"ok": False, "error": "Запит завеликий"})
             try:
                 body = json.loads(self.rfile.read(length) or b"{}")
             except ValueError:
                 return self._json(400, {"ok": False, "error": "Некоректний JSON"})
+            if not isinstance(body, dict):
+                return self._json(400, {"ok": False, "error": "Очікується JSON-об'єкт"})
             route = ROUTES.get(urlparse(self.path).path)
             if route is None:
                 return self._json(404, {"ok": False, "error": "Не знайдено"})
@@ -81,7 +88,7 @@ def make_server(engine, port=8765):
                 return self._json(409, {"ok": False, "error": "Інший запит ще виконується."})
             try:
                 self._json(200, {"ok": True, "data": route(engine, body)})
-            except (LLMError, LibraryError, KeyError, ValueError, TypeError) as exc:
+            except (LLMError, LibraryError, KeyError, ValueError, TypeError, OSError) as exc:
                 self._json(400, {"ok": False, "error": str(exc)})
             finally:
                 busy.release()

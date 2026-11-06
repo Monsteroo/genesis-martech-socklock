@@ -73,7 +73,7 @@ h2{font-size:17px;margin:20px 0 6px}
 
   <h2>Збірка з блоків</h2>
   <input id="compose-pain" placeholder="Біль для нових блоків">
-  <div class="mut">Позначені типи беруться з обраного оригіналу, решта пишеться заново.</div>
+  <div class="mut">Позначені типи беруться з оригіналу, непозначені пишуться заново.</div>
   <div id="reuse-types"></div>
   <button class="go" id="btn-compose">Зібрати</button>
   <div id="composed"></div>
@@ -82,7 +82,7 @@ h2{font-size:17px;margin:20px 0 6px}
 
 <script>
 const TOKEN = "__TOKEN__";
-const COMPOSE_TYPES = ["HOOK", "PAIN", "DEMO", "PROOF", "CTA"];  // ONSCREEN is not offered: demo compose answer covers HOOK+PAIN only
+const TYPES = ["HOOK", "PAIN", "DEMO", "PROOF", "ONSCREEN", "CTA"];
 const MARKETS = ["de", "fr", "es", "it", "pl"];
 const $ = (id) => document.getElementById(id);
 
@@ -227,8 +227,8 @@ $("btn-localize").onclick = async () => {
       ...s.flags.map((f) => h("div", {className: "flag", textContent: "⚠ " + f})))))));
 };
 
-COMPOSE_TYPES.forEach((t) => {
-  const cb = h("input", {type: "checkbox", value: t, checked: ["DEMO", "PROOF", "CTA"].includes(t), style: "width:auto"});
+TYPES.forEach((t) => {
+  const cb = h("input", {type: "checkbox", value: t, checked: ["DEMO", "PROOF", "ONSCREEN", "CTA"].includes(t), style: "width:auto"});
   $("reuse-types").append(h("label", {className: "inline"}, cb, " " + t));
 });
 
@@ -237,6 +237,7 @@ $("btn-compose").onclick = async () => {
   if (!rec) { $("err").textContent = "Оберіть оригінал."; return; }
   const reuse = {}, fresh = [];
   document.querySelectorAll("#reuse-types input").forEach((c) => (c.checked ? (reuse[c.value] = rec.id) : fresh.push(c.value)));
+  if (!fresh.length) { $("err").textContent = "Залиште хоча б один тип непозначеним"; return; }
   const data = await api("/api/compose", {pain: $("compose-pain").value, reuse, new: fresh});
   if (!data) return;
   $("composed").replaceChildren(h("div", {className: "card"},
