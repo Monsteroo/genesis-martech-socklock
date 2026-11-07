@@ -81,7 +81,7 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaises(visuals.VisualsUnavailable):
             visuals.get_provider("nope")
         with self.assertRaises(visuals.VisualsUnavailable):
-            visuals.get_provider("demo", kind="video")
+            visuals.get_provider("nope", kind="video")
 
     def test_a_video_provider_such_as_heygen_plugs_in_without_touching_anything_else(self):
         class FakeHeygen:
@@ -95,8 +95,9 @@ class RegistryTests(unittest.TestCase):
                 Path(dest).write_bytes(b"video")
                 return Path(dest)
 
+        before = visuals._REGISTRY.get(("video", "heygen"))
         visuals.register_provider("heygen", "video", lambda **kw: FakeHeygen())
-        self.addCleanup(visuals._REGISTRY.pop, ("video", "heygen"), None)
+        self.addCleanup(visuals._REGISTRY.__setitem__, ("video", "heygen"), before)
         p = visuals.get_provider("heygen", kind="video")
         self.assertEqual((p.kind, p.name), ("video", "heygen"))
         dest = Path(tempfile.mkdtemp()) / "dub.mp4"

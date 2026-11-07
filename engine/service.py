@@ -12,6 +12,8 @@ from engine import images as imgs
 from engine import localize as localizer
 from engine import originals as origin
 from engine import variants as varier
+from engine import video as videolib
+from engine import videos as videostore
 from engine import visuals
 from engine.library import STATUSES, Library, LibraryError
 
@@ -24,13 +26,15 @@ MAX_OVERLAY = 12 * 1024 * 1024
 class Engine:
     """Wires the pure modules to the library and to out/ files. CLI and web are thin shells over this."""
 
-    def __init__(self, root, llm, images=None):
+    def __init__(self, root, llm, images=None, video=None):
         self.root = Path(root)
         self.llm = llm
         self.library = Library(self.root / "library" / "originals.json")
         self.glossary = glossary.load(self.root / "samples" / "glossary.json")
         self.out_dir = self.root / "out"
         self.images = images if images is not None else visuals.NoImages()
+        self.video = video if video is not None else videolib.NoVideo()
+        self.videos = videostore.Videos(self.root / "library" / "videos")
         self.image_store = imgs.ImageStore(self.root / "library" / "images")
         self.gallery = galleries.Gallery(self.root / "library" / "gallery")
         self.captions = captionlib.Captions(self.root / "library" / "captions", llm, self.glossary)
@@ -196,6 +200,53 @@ class Engine:
         if not isinstance(ids, list):
             raise LibraryError("Очікується список id.")
         return {"deleted": self.gallery.delete(ids)}
+
+    # tab 3: animation of a still frame
+    ASPECT = {"1024x1536": "9:16", "1024x1024": "1:1", "1536x1024": "16:9"}
+
+    def animate(self, parent=None, motion="", duration=videolib.DEFAULT_DURATION, format=None):
+        if motion is None:
+            motion = ""
+        if not isinstance(motion, str) or len(motion.strip()) > videostore.MAX_MOTION:
+            raise LibraryError(f"Опис анімації задовгий (до {videostore.MAX_MOTION} символів).")
+        motion = motion.strip()
+        if not isinstance(duration, int) or isinstance(duration, bool) or duration not in videolib.DURATIONS:
+            raise LibraryError("Тривалість має бути одним із: " + ", ".join(str(d) for d in videolib.DURATIONS) + " с.")
+        base_prompt, size, _style, src, parent_meta = self._parent_meta(parent)
+        if format not in (None, ""):
+            if not isinstance(format, str) or format not in visuals.SIZES:
+                raise LibraryError(f"Невідомий формат. Доступні: {', '.join(visuals.SIZES)}")
+            if visuals.SIZES[format] != size:
+                raise LibraryError("Відео має формат кадру: HeyGen не змінює пропорції. Змініть формат у «Модифікації».")
+        _chained, root = self._chain(parent, parent_meta)
+        vid = self.videos.fresh_id()
+        dest = self.videos.path(vid)
+        try:
+            self.video.animate(videolib.motion_prompt(motion), src, dest, duration)
+            return self.videos.add(vid, parent=parent, root=root, prompt=base_prompt, motion=motion, duration=duration,
+                                   aspect=self.ASPECT[size], size=size, provider=getattr(self.video, "name", ""),
+                                   bytes=dest.stat().st_size)
+        except BaseException:
+            dest.unlink(missing_ok=True)
+            self.videos.meta_path(vid).unlink(missing_ok=True)
+            raise
+
+    def video_info(self):
+        ok, reason = self.video.available()
+        return {"available": bool(ok), "reason": reason, "provider": getattr(self.video, "name", ""),
+                "durations": list(videolib.DURATIONS), "default_duration": videolib.DEFAULT_DURATION}
+
+    def list_videos(self, parent=None, trashed=False):
+        return {"items": self.videos.find(parent=parent, trashed=trashed)}
+
+    def trash_videos(self, ids):
+        return {"trashed": self.videos.set_trashed(ids, True)}
+
+    def restore_videos(self, ids):
+        return {"restored": self.videos.set_trashed(ids, False)}
+
+    def delete_videos(self, ids):
+        return {"deleted": self.videos.delete(ids)}
 
     def gallery_zip(self, ids):
         return self.gallery.zip_bytes(ids)

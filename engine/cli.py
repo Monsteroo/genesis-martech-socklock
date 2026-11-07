@@ -4,7 +4,7 @@ import os
 import sys
 from pathlib import Path
 
-from engine import envfile, openai_api, visuals
+from engine import envfile, openai_api, video, visuals
 from engine.library import STATUSES, LibraryError, render_script
 from engine.llm import LLMError, get_backend
 from engine.localize import MARKETS
@@ -199,7 +199,7 @@ def build_parser():
     return p
 
 
-def main(argv=None, llm=None, root=None, images=None):
+def main(argv=None, llm=None, root=None, images=None, videos=None):
     args = build_parser().parse_args(argv)
     root = Path(root) if root else DEFAULT_ROOT
     try:
@@ -207,7 +207,9 @@ def main(argv=None, llm=None, root=None, images=None):
         backend = None if args.func in (cmd_visuals, cmd_models) else (llm or get_backend(args.backend))
         provider = images if images is not None else visuals.get_provider(
             args.backend or os.environ.get("ENGINE_BACKEND") or "openai")
-        args.func(args, Engine(root, backend, images=provider))
+        name = args.backend or os.environ.get("ENGINE_BACKEND") or "openai"
+        clips = videos if videos is not None else visuals.get_provider("demo" if name == "demo" else "heygen", "video")
+        args.func(args, Engine(root, backend, images=provider, video=clips))
         return 0
     except (LLMError, LibraryError, OSError, ValueError) as exc:
         print(f"Помилка: {exc}", file=sys.stderr)

@@ -14,11 +14,18 @@ from engine.llm import LLMError
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 MAX_BODY = 100_000
 GALLERY_PNG = re.compile(r"/api/g/(g[0-9a-f]{8})\.png")
+VIDEO_MP4 = re.compile(r"/api/v/(v[0-9a-f]{8})\.mp4")
+RANGE = re.compile(r"bytes=(\d*)-(\d*)")
+STREAM_CHUNK = 1 << 20
 
 ROUTES = {
     "/api/gen": lambda e, b: e.quick_image(b.get("prompt", ""), b.get("format") or "vertical", b.get("style")),
     "/api/modify": lambda e, b: e.modify_image(b.get("parent"), b.get("change", ""), b.get("variation", 0), b.get("format")),
     "/api/localize": lambda e, b: e.localize_image(b.get("parent"), b.get("market"), b.get("format"), b.get("no_text")),
+    "/api/animate": lambda e, b: e.animate(b.get("parent"), b.get("motion", ""), b.get("duration", 5), b.get("format")),
+    "/api/videos/trash": lambda e, b: e.trash_videos(b["ids"]),
+    "/api/videos/restore": lambda e, b: e.restore_videos(b["ids"]),
+    "/api/videos/delete": lambda e, b: e.delete_videos(b["ids"]),
     "/api/gallery/delete": lambda e, b: e.delete_gallery(b["ids"]),
     "/api/gallery/trash": lambda e, b: e.trash_gallery(b["ids"]),
     "/api/gallery/restore": lambda e, b: e.restore_gallery(b["ids"]),
@@ -34,6 +41,24 @@ MAX_OVERLAY = 12 * 1024 * 1024
 IMAGE_ROUTES = {"/api/gen", "/api/modify", "/api/localize"}
 NO_LOCK_ROUTES = {"/api/gallery/delete"}
 IMAGE_QUEUE_TIMEOUT = 600
+VIDEO_ROUTES = {"/api/animate"}
+VIDEO_QUEUE_TIMEOUT = 900
+
+
+def video_workers_from_env():
+    try:
+        value = int(os.environ.get("VIDEO_WORKERS") or 2)
+    except ValueError:
+        return 2
+    return max(1, min(4, value))
+
+
+def _clip_price_from_env():
+    try:
+        price = float(os.environ.get("HEYGEN_CLIP_PRICE_USD") or "")
+    except ValueError:
+        return None
+    return price if price == price and 0 <= price < 1e6 else None
 
 
 def image_workers_from_env():
@@ -51,10 +76,12 @@ def _price_from_env():
         return None
 
 
-def make_server(engine, port=8780, image_workers=None):
+def make_server(engine, port=8780, image_workers=None, video_workers=None):
     token = secrets.token_urlsafe(24)
     workers = image_workers or image_workers_from_env()
     slots = threading.BoundedSemaphore(workers)
+    vworkers = video_workers or video_workers_from_env()
+    vslots = threading.BoundedSemaphore(vworkers)
     pages = {"/": (WEB_DIR / "generate.html").read_text(encoding="utf-8").replace("__TOKEN__", token)}
 
     class Handler(BaseHTTPRequestHandler):
@@ -141,6 +168,8 @@ def make_server(engine, port=8780, image_workers=None):
                     "provider": getattr(images, "name", ""),
                     "image_model": getattr(images, "model", ""),
                     "price_usd": _price_from_env(),
+                    "video": {**{k: v for k, v in engine.video_info().items() if k != "reason"}, "workers": vworkers,
+                              "price_usd": _clip_price_from_env()},
                     "markets": [{"key": k, **{f: m[f] for f in ("name_uk", "name", "lang", "status")},
                                  "catalog_locale": captions.locale_for_market(k)}
                                 for k, m in visuals.MARKETS.items()],
@@ -176,6 +205,23 @@ def make_server(engine, port=8780, image_workers=None):
                 except OSError:
                     return self._json(404, {"ok": False, "error": "Зображення немає"})
                 return self._send_bytes(200, data, "image/png", {"ETag": etag}, cache="private, no-cache")
+            if url.path == "/api/videos":
+                if not self._token_ok():
+                    return self._json(403, {"ok": False, "error": "Невірний токен"})
+                query = parse_qs(url.query)
+                flag = query.get("trashed", ["0"])[0]
+                try:
+                    if flag not in ("0", "1"):
+                        raise LibraryError("Некоректний параметр trashed.")
+                    data = engine.list_videos(query.get("parent", [None])[0], flag == "1")
+                except LibraryError as exc:
+                    return self._json(400, {"ok": False, "error": str(exc)})
+                return self._json(200, {"ok": True, "data": data})
+            match = VIDEO_MP4.fullmatch(url.path)
+            if match:
+                if not self._token_ok():
+                    return self._json(403, {"ok": False, "error": "Невірний токен"})
+                return self._video(match.group(1))
             if url.path == "/api/gallery/zip":
                 if not self._token_ok():
                     return self._json(403, {"ok": False, "error": "Невірний токен"})
@@ -187,6 +233,61 @@ def make_server(engine, port=8780, image_workers=None):
                 return self._send_bytes(200, data, "application/zip", {
                     "Content-Disposition": 'attachment; filename="images.zip"'})
             self._json(404, {"ok": False, "error": "Не знайдено"})
+
+        def _video(self, vid):
+            try:
+                file = engine.videos.path(vid)
+                info = file.stat()
+                etag = f'"{info.st_mtime_ns}-{info.st_size}"'
+                size = info.st_size
+                start, end, code = 0, size - 1, 200
+                if self.headers.get("If-None-Match") == etag:
+                    self.send_response(304)
+                    self.send_header("ETag", etag)
+                    self.send_header("Cache-Control", "private, no-cache")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                rng = RANGE.fullmatch(self.headers.get("Range", "").strip())
+                if rng and (rng.group(1) or rng.group(2)):   # a single range only; anything else gets the whole file
+                    if rng.group(1):
+                        start = int(rng.group(1))
+                        end = min(int(rng.group(2)), size - 1) if rng.group(2) else size - 1
+                    else:
+                        start, end = max(0, size - int(rng.group(2))), size - 1
+                    if start >= size or start > end:
+                        self.send_response(416)
+                        self.send_header("Content-Range", f"bytes */{size}")
+                        self.send_header("Content-Length", "0")
+                        self.end_headers()
+                        return
+                    code = 206
+                handle = file.open("rb")
+            except OSError:
+                return self._json(404, {"ok": False, "error": "Відео немає"})
+            with handle:
+                self.send_response(code)
+                self.send_header("Content-Type", "video/mp4")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Cache-Control", "private, no-cache")
+                self.send_header("ETag", etag)
+                self.send_header("Accept-Ranges", "bytes")
+                if code == 206:
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+                self.send_header("Content-Length", str(end - start + 1))
+                self.end_headers()
+                try:
+                    handle.seek(start)
+                    left = end - start + 1
+                    while left > 0:
+                        chunk = handle.read(min(STREAM_CHUNK, left))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        left -= len(chunk)
+                except OSError:
+                    self.close_connection = True   # the client went away; headers are already sent
 
         def do_POST(self):
             self._write("POST")
@@ -219,8 +320,9 @@ def make_server(engine, port=8780, image_workers=None):
             route = (ROUTES if method == "POST" else PUT_ROUTES).get(path)
             if route is None:
                 return self._json(404, {"ok": False, "error": "Не знайдено"})
-            lock = slots if path in IMAGE_ROUTES else None
-            if lock is not None and not lock.acquire(timeout=IMAGE_QUEUE_TIMEOUT):
+            lock = slots if path in IMAGE_ROUTES else vslots if path in VIDEO_ROUTES else None
+            wait = VIDEO_QUEUE_TIMEOUT if path in VIDEO_ROUTES else IMAGE_QUEUE_TIMEOUT
+            if lock is not None and not lock.acquire(timeout=wait):
                 return self._json(409, {"ok": False, "error": "Усі слоти генерації зайняті, спробуйте пізніше."})
             try:
                 self._json(200, {"ok": True, "data": route(engine, body)})

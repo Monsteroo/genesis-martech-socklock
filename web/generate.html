@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <title>Генератор зображень</title>
 <style>
 :root{--bg:#fff;--fg:#1a1a1a;--mut:#667;--line:#e2e2e8;--edge:#8a8a99;--acc:#4f46e5;--acc-fg:#fff;--card:#fafafc;--bad:#c62828;--sel:#4f46e5;--backing:rgba(255,255,255,.85)}
@@ -130,6 +130,11 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
 .trashbar button{border:1px solid var(--edge);background:var(--card);color:var(--fg);border-radius:10px;padding:8px 14px;font:inherit;font-size:14px;cursor:pointer}
 .trashbar button.armed{background:var(--bad);color:var(--bg);border-color:var(--bad)}
 .tile .origin{font-size:12px;color:var(--mut)}
+.vplay{width:100%;max-height:420px;border:1px dashed var(--edge);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;cursor:pointer;min-height:120px}
+.tile video{width:100%;max-height:420px;display:block;border-radius:10px;background:#000}
+.vgroup{margin-top:14px}
+.vgroup>h3{font-size:15px;margin:0 0 6px}
+#vresults .section .grid{grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -141,7 +146,7 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
   <div class="tabs" role="tablist" aria-label="Розділи">
     <button type="button" role="tab" id="tab-originals" aria-controls="p-originals">Оригінали<span class="count" id="c-originals">0</span><span class="flag" id="f-originals" hidden></span></button>
     <button type="button" role="tab" id="tab-modifications" aria-controls="p-modifications">Модифікації<span class="count" id="c-modifications">0</span><span class="flag" id="f-modifications" hidden></span></button>
-    <button type="button" role="tab" id="tab-animation" aria-controls="p-animation">Анімація<span class="beta">у розробці</span></button>
+    <button type="button" role="tab" id="tab-animation" aria-controls="p-animation">Анімація<span class="count" id="c-animation">0</span><span class="flag" id="f-animation" hidden></span><span class="beta">бета</span></button>
     <button type="button" role="tab" id="tab-trash" aria-controls="p-trash">Кошик<span class="count" id="c-trash">0</span><span class="flag" id="f-trash" hidden></span></button>
   </div>
 
@@ -230,7 +235,7 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
   </section>
 
   <section id="p-animation" role="tabpanel" aria-labelledby="tab-animation" hidden>
-    <div id="abanner" role="status">Ця вкладка ще в розробці: анімація поки не працює. Інтерфейс уже готовий — генерація з'явиться згодом.</div>
+    <div id="abanner" role="status" hidden>Додайте HEYGEN_API_KEY у .env, щоб увімкнути анімацію</div>
     <h2>1. Оберіть зображення</h2>
     <div id="anoorig" class="mut" hidden>Створіть оригінали у вкладці «Оригінали».</div>
     <div class="links"><button id="apickall" type="button">Вибрати всі</button></div>
@@ -242,16 +247,13 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
     <input type="text" id="aprompt" maxlength="300" aria-label="Яку анімацію" placeholder="Наприклад: повільний наїзд камери, шкарпетки злегка гойдаються">
     <div id="achips" class="chips" role="group" aria-label="Швидкі підказки"></div>
     <div class="row"><label class="lbl" for="adur">Тривалість</label>
-      <select id="adur"><option value="3">3 с</option><option value="5" selected>5 с</option><option value="10">10 с</option></select></div>
-    <div class="row"><label class="lbl" for="aformat">Формат</label>
-      <select id="aformat">
-        <option value="" selected>Як в оригіналі</option>
-        <option value="vertical">Вертикальний</option>
-        <option value="square">Квадрат</option>
-        <option value="wide">Широкий</option>
-      </select></div>
-    <div class="row"><button id="ago" class="go" type="button" aria-disabled="true" aria-describedby="ahint">Створити анімацію</button><span id="ahint" class="mut">У розробці — скоро буде</span></div>
-    <div class="mut">Тут з'являться анімації вибраних зображень.</div>
+      <select id="adur"><option value="5" selected>5 с</option></select></div>
+    <div class="mut small">Формат відео збігається з форматом кадру: HeyGen не змінює пропорції. Інший формат зробіть у «Модифікації».</div>
+    <div class="row"><button id="ago" class="go" type="button" aria-disabled="true" aria-describedby="ahint">Створити анімацію</button><span id="ahint" class="mut"></span></div>
+    <div class="mut small">Генерація відео платна й займає 1–3 хв. Модель слабка на довгому тексті й м'якому русі (волосся, папір).</div>
+    <div id="anote" class="mut" role="status" aria-live="polite"></div>
+    <div id="vempty" class="mut">Тут з'являться анімації вибраних зображень.</div>
+    <div id="vresults"></div>
   </section>
 
   <section id="p-trash" role="tabpanel" aria-labelledby="tab-trash" hidden>
@@ -280,7 +282,7 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
 
 <script>
 const TOKEN = "__TOKEN__";
-const TIMEOUT = { api: 60000, gen: 180000, blob: 60000 };
+const TIMEOUT = { api: 60000, gen: 180000, blob: 60000, vid: 960000 };
 const SLOW = "Сервер довго не відповідає. Спробуйте ще раз.";
 const STALE = "Сторінка застаріла. Оновіть її (F5).";
 const AMBIGUOUS = "Зображення могло вже створитися. Оновіть сторінку й перегляньте галерею.";
@@ -289,6 +291,8 @@ const GROUP_PAGE = 8;   // modifications per page inside one section
 const SECTIONS_PAGE = 5; // sections per original on first open
 const SUBS_PAGE = 8;    // sub-tabs shown at first
 const MAX_BATCH = 24;   // most images one click may start
+const MAX_VIDEO_BATCH = 4;   // most clips one click may start (they are paid and slow)
+const AMBIGUOUS_V = "Відео могло вже створитися (і бути оплаченим). Оновіть сторінку й перегляньте результати.";
 const CHIPS = ["інше світло", "інший ракурс", "інший фон", "інші кольори", "ближче", "ширше", "додай підпис «Пара завжди разом»", "замінити підпис на «…»", "без підпису", "для зими", "для літа", "інша модель", "в руці"];
 const TABS = { originals: "Оригінали", modifications: "Модифікації", animation: "Анімація", trash: "Кошик" };
 const ANIM_CHIPS = ["повільний наїзд", "відʼїзд", "паралакс", "легкий рух тканини", "плавний поворот", "мерехтіння світла"];
@@ -302,6 +306,8 @@ const h = (tag, props, ...kids) => {
 const reducedMotion = () => matchMedia("(prefers-reduced-motion:reduce)").matches;
 const short = (s) => { s = (s || "").trim(); return s.length > 40 ? s.slice(0, 40) + "…" : s; };
 // "1 зображення", "2 зображення", "5 зображень"
+const anims = (n) => (n % 10 === 1 && n % 100 !== 11) ? "анімацію"
+  : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14)) ? "анімації" : "анімацій";
 const images = (n) => (n % 10 === 1 && n % 100 !== 11) || (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14))
   ? "зображення" : "зображень";
 
@@ -335,7 +341,7 @@ async function apiQuiet(path, payload, ms = TIMEOUT.api) {
 }
 
 // The result always carries an explicit type we chose, so an opened blob URL can never render as HTML.
-const BLOB_KINDS = { image: ["image/", "image/png"], zip: ["application/", "application/zip"] };
+const BLOB_KINDS = { image: ["image/", "image/png"], zip: ["application/", "application/zip"], video: ["video/", "video/mp4"] };
 async function getBlob(url, kind = "image") {
   const [prefix, exact] = BLOB_KINDS[kind];
   const blob = await withTimeout(TIMEOUT.blob, async (signal) => {
@@ -392,7 +398,7 @@ function release(entry) {
 }
 
 /* ---------- queues: generation (CONFIG.workers) and gallery loading (3) never wait on each other ---------- */
-let CONFIG = { workers: 4, price_usd: null, markets: [] };
+let CONFIG = { workers: 4, price_usd: null, markets: [], video: { available: false, durations: [5], workers: 2, price_usd: null } };
 
 function makeQueue(limit) {
   const waiting = [];
@@ -408,6 +414,7 @@ function makeQueue(limit) {
 }
 const enqueueGen = makeQueue(() => Math.max(1, Math.min(8, Number(CONFIG.workers) || 4)));
 const enqueueGallery = makeQueue(() => 3);
+const enqueueVideo = makeQueue(() => Math.max(1, Math.min(4, Number((CONFIG.video || {}).workers) || 2)));
 
 /* ---------- busy buttons: aria-disabled keeps keyboard focus ---------- */
 const isBusy = (btn) => btn.getAttribute("aria-disabled") === "true";
@@ -430,6 +437,8 @@ const genLocks = { startup: true, key: false, cool: false };
 const modLocks = { startup: true, key: false, cool: false, none: true, over: false };
 const lockGen = makeGate($("go"), genLocks);
 const lockMod = makeGate($("mgo"), modLocks);
+const animLocks = { startup: true, key: false, cool: false, none: true, over: false };
+const lockAnim = makeGate($("ago"), animLocks);
 
 function coolDown(lock) {
   lock("cool", true);
@@ -437,9 +446,10 @@ function coolDown(lock) {
 }
 
 // The one gate for every start of modifications (button, Enter, «Ще схожі»): banner, cooldown, batch cap.
-function startGuard(n) {
-  if (modLocks.startup || modLocks.key || modLocks.cool || n < 1 || n > MAX_BATCH) return false;
-  coolDown(lockMod);
+function startGuard(n, anim) {
+  const locks = anim ? animLocks : modLocks;
+  if (locks.startup || locks.key || locks.cool || n < 1 || n > (anim ? MAX_VIDEO_BATCH : MAX_BATCH)) return false;
+  coolDown(anim ? lockAnim : lockMod);
   return true;
 }
 
@@ -479,6 +489,17 @@ function updateLabels() {
   $("pickall").textContent = n ? "Зняти" : "Вибрати всі";
   lockMod("none", n === 0);
   lockMod("over", over);
+  const na = stripAnim.chosen().length;
+  const overA = na > MAX_VIDEO_BATCH;
+  const vp = (CONFIG.video || {}).price_usd;
+  $("ago").textContent = na ? "Створити " + na + " " + anims(na) : "Створити анімацію";
+  $("ahint").className = overA ? "bad" : "mut";
+  $("ahint").textContent = !na ? "Виберіть хоча б одне зображення."
+    : overA ? "Забагато: максимум " + MAX_VIDEO_BATCH + " за раз. Виберіть менше зображень."
+    : vp ? "≈ $" + vp.toFixed(2) + " за кліп" + (na > 1 ? " · разом ≈ $" + (vp * na).toFixed(2) : "")
+    : "Ціна залежить від вашого тарифу HeyGen";
+  lockAnim("none", na === 0);
+  lockAnim("over", overA);
   capUpdate();
 }
 
@@ -506,7 +527,7 @@ for (const text of CHIPS) {
   $("chips").append(b);
 }
 
-// «Анімація» is a placeholder: its chips only fill the field, the start button does nothing and sends nothing.
+// «Анімація»: a chip appends its words to the motion text, once.
 for (const text of ANIM_CHIPS) {
   const b = h("button", { type: "button" }, text);
   b.addEventListener("click", () => {
@@ -580,7 +601,7 @@ function makePanel(opts) {
 }
 
 /* ---------- data and tabs ---------- */
-const store = { originals: [], mods: [], trash: [] };
+const store = { originals: [], mods: [], videos: [], trash: [] };
 const trashedIds = new Set();   // ids in the trash: their children show «в кошику»   // metadata, newest first: the source of the counters
 const originalIds = new Set();
 let ready = false;    // the originals list loaded
@@ -591,6 +612,7 @@ const tiles = new Set();
 
 const isGone = (id) => ready && !originalIds.has(id);
 const isMod = (meta) => meta.kind === "modification";
+const isVideo = (meta) => meta.kind === "video";
 const rootOf = (meta) => meta.root || meta.parent;   // the top original of a modification
 const findMeta = (id) => store.originals.find((m) => m.id === id) || store.mods.find((m) => m.id === id);
 const TAB_OF = { original: "originals", modification: "modifications", trashed: "trash" };
@@ -611,9 +633,8 @@ function updateChrome() {
   const n = barPicked().length;
   $("bar").hidden = n === 0;
   $("n").textContent = n;
-  const counts = { originals: store.originals.length, modifications: store.mods.length, trash: store.trash.length };
+  const counts = { originals: store.originals.length, modifications: store.mods.length, animation: store.videos.length, trash: store.trash.length };
   for (const name of Object.keys(TABS)) {
-    if (name === "animation") continue;   // a placeholder: no counters
     $("c-" + name).textContent = counts[name];
     const { busy, failed } = jobs(name);
     const flag = $("f-" + name);
@@ -632,6 +653,7 @@ function updateChrome() {
   $("smore").hidden = stripMods.rest.length === 0;
   $("asmore").hidden = stripAnim.rest.length === 0;
   $("anoorig").hidden = !ready || store.originals.length > 0;
+  $("vempty").hidden = store.videos.length > 0 || [...tiles].some((t) => t.isVideo && t.tab === "animation");
   $("apickall").textContent = stripAnim.chosen().length ? "Зняти" : "Вибрати всі";
   $("del").hidden = active === "trash";
   syncSubs();
@@ -947,7 +969,7 @@ $("prompt").addEventListener("keydown", (e) => {
 
 /* ---------- strips of sources (chooser tiles): one for «Модифікації», one for «Анімація» ---------- */
 // ids: strip, more, pickall, msg elements. cap(): most sources one click may take (or nothing).
-function makeStrip(target, ids, cap) {
+function makeStrip(target, ids, cap, limit = MAX_BATCH) {
   const st = { target, rest: [], live: new Map() };   // live: image id -> chooser tile
   st.chosen = () => [...tiles].filter((t) => t.role === "chooser" && t.target === target && t.picked());
 
@@ -989,7 +1011,7 @@ function makeStrip(target, ids, cap) {
       .sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
     const n = cap ? cap() : all.length;
     all.slice(0, n).forEach((t) => t.setPicked(true));
-    if (all.length > n) $(ids.msg).textContent = "Вибрано перші " + n + ": максимум " + MAX_BATCH + " за раз.";
+    if (all.length > n) $(ids.msg).textContent = "Вибрано перші " + n + ": максимум " + limit + " за раз.";
     updateChrome();
   });
   return st;
@@ -997,7 +1019,8 @@ function makeStrip(target, ids, cap) {
 
 const stripMods = makeStrip("mods", { strip: "strip", more: "smore", pickall: "pickall", msg: "mmsg" },
   () => Math.max(1, Math.floor(MAX_BATCH / state.mcount)));
-const stripAnim = makeStrip("anim", { strip: "astrip", more: "asmore", pickall: "apickall", msg: "amsg" });
+const stripAnim = makeStrip("anim", { strip: "astrip", more: "asmore", pickall: "apickall", msg: "amsg" },
+  () => MAX_VIDEO_BATCH, MAX_VIDEO_BATCH);
 let animBuilt = false;
 
 // Originals and modifications, newest first; built only when the tab is first opened.
@@ -1006,6 +1029,8 @@ function buildAnim() {
   animBuilt = true;
   stripAnim.rest = [...store.originals, ...store.mods].sort((a, b) => b.created - a.created);
   stripAnim.showMore();
+  for (const meta of store.videos.slice().reverse()) placeVideo(meta);   // oldest first: the newest group ends on top
+  updateChrome();
 }
 const offerToAnim = (meta) => { if (animBuilt) stripAnim.add(meta, true); else stripAnim.rest.unshift(meta); };
 
@@ -1015,6 +1040,252 @@ function addOriginal(meta) {
   originalIds.add(meta.id);
   if (modsBuilt) stripMods.add(meta, true); else stripMods.rest.unshift(meta);
   offerToAnim(meta);
+  updateChrome();
+}
+
+/* ---------- animation: clips grouped per source frame, then per motion · duration ---------- */
+const vgroups = new Map();   // source image id -> { el, parent, sections: Map(key -> { el, grid }) }
+const motionLabel = (m) => m.motion || "без опису";
+const vkey = (motion, duration) => JSON.stringify([motion || "", duration]);
+
+function vgroupFor(parent, fallback) {
+  let group = vgroups.get(parent);
+  if (!group) {
+    const src = findMeta(parent);
+    const title = h("h3", {}, "Кадр: " + (short((src && ((isMod(src) && src.change) || src.prompt)) || fallback || "") || parent));
+    group = { parent, el: h("div", { className: "vgroup" }, title), sections: new Map() };
+    vgroups.set(parent, group);
+  }
+  $("vresults").prepend(group.el);   // the group with the newest clip goes first
+  return group;
+}
+
+function vsectionFor(group, motion, duration) {
+  const key = vkey(motion, duration);
+  let section = group.sections.get(key);
+  if (!section) {
+    const grid = h("div", { className: "grid" });
+    const el = h("div", { className: "section" }, h("h3", {}, (motion || "без опису") + " · " + duration + " с"), grid);
+    section = { el, grid, key };
+    group.sections.set(key, section);
+    group.el.append(el);
+  }
+  return section;
+}
+
+function vcleanup(group, section) {
+  if (!section.grid.firstChild) { section.el.remove(); group.sections.delete(section.key); }
+  if (!group.sections.size) { group.el.remove(); vgroups.delete(group.parent); }
+}
+
+// opts: meta (existing clip) or payload {parent, motion, duration} to generate; role "video" or "trashed".
+function makeVideoTile(opts) {
+  const role = opts.role || "video";
+  const body = h("div", { className: "body" });
+  const el = h("div", { className: "tile" }, body);
+  const tile = { el, role, isVideo: true, tab: role === "trashed" ? "trash" : "animation", meta: opts.meta || null, url: null, blob: null,
+    timer: null, dead: false, pickEl: null, fresh: !opts.meta, state: "busy", picked: () => false, setPicked: () => {}, place: null };
+  const stopTimer = () => { clearInterval(tile.timer); tile.timer = null; };
+
+  tile.running = () => {
+    stopTimer();
+    tile.state = "busy";
+    const label = h("div", { className: "mut" }, "Генерація відео займає 1–3 хв · 0 с");
+    body.className = "body";
+    body.replaceChildren(h("div", { className: "spin" }), label);
+    const started = Date.now();
+    tile.timer = setInterval(() => { label.textContent = "Генерація відео займає 1–3 хв · " + Math.floor((Date.now() - started) / 1000) + " с"; }, 1000);
+  };
+  tile.queued = () => {
+    stopTimer();
+    tile.state = "busy";
+    body.className = "body";
+    body.replaceChildren(h("div", { className: "spin" }), h("div", { className: "mut" }, "У черзі… Генерація відео займає 1–3 хв"));
+  };
+
+  // An ambiguous failure (the request may have reached HeyGen) is never repeated by itself.
+  tile.fail = (message, kind) => {
+    stopTimer();
+    tile.state = "failed";
+    const reload = h("button", { type: "button", className: "primary" }, "Оновити сторінку");
+    reload.addEventListener("click", () => location.reload());
+    const again = h("button", { type: "button" }, kind === "ambiguous" ? "Спробувати ще (нова оплата)" : "Спробувати ще");
+    again.addEventListener("click", tile.submit);
+    const drop = h("button", { type: "button" }, "Прибрати");
+    drop.addEventListener("click", () => { tile.remove(); updateChrome(); });
+    const buttons = kind === "stale" ? [reload, drop] : kind === "ambiguous" ? [reload, again, drop] : [again, drop];
+    body.className = "body msg";
+    body.replaceChildren(h("div", { className: "bad" }, message), h("div", { className: "fixes" }, ...buttons));
+    updateChrome();
+  };
+
+  tile.addPick = () => {
+    if (tile.pickEl) return;
+    const box = h("input", { type: "checkbox", className: "pick" });
+    box.setAttribute("aria-label", "Вибрати відео: " + short(motionLabel(tile.meta)));
+    box.addEventListener("change", () => { el.classList.toggle("sel", box.checked); barNote(); updateChrome(); });
+    tile.pickEl = box;
+    tile.picked = () => box.checked;
+    tile.setPicked = (on) => { box.checked = on; el.classList.toggle("sel", on); };
+    el.prepend(h("label", { className: "pickbox" }, box));
+  };
+
+  // The video itself is fetched (with the token) only when asked for, then played from an object URL.
+  async function load() {
+    if (tile.blob) return tile.blob;
+    tile.blob = await getBlob("/api/v/" + tile.meta.id + ".mp4", "video");
+    return tile.blob;
+  }
+
+  function show() {
+    const meta = tile.meta;
+    stopTimer();
+    tile.state = "ok";
+    const [w, hh] = (meta.aspect || "9:16").split(":");
+    const play = h("button", { type: "button", className: "vplay" }, "▶ Відтворити");
+    play.style.aspectRatio = w + " / " + hh;
+    play.setAttribute("aria-label", "Відтворити відео: " + motionLabel(meta));
+    play.addEventListener("click", async () => {
+      if (isBusy(play)) return;
+      setBusy(play, true);
+      play.textContent = "Завантажую…";
+      try {
+        const blob = await load();
+        if (tile.dead) return;
+        tile.url = tile.url || URL.createObjectURL(blob);
+        const video = h("video", { controls: true, preload: "none", playsInline: true, src: tile.url });
+        video.setAttribute("aria-label", "Відео: " + motionLabel(meta));
+        body.replaceChildren(video);
+        video.focus();
+        video.play().catch(() => {});
+      } catch (e) {
+        setBusy(play, false);
+        play.textContent = explain(e, "Не вдалося завантажити відео. Спробувати ще");
+      }
+    });
+    body.className = "body";
+    body.replaceChildren(play);
+    if (role === "trashed") {
+      tile.addPick();
+      if (!el.querySelector(".origin")) el.append(h("div", { className: "origin clip" }, originLabel(meta)));
+      return;
+    }
+    if (el.querySelector(".acts")) return;
+    el.append(h("div", { className: "mut small clip" }, motionLabel(meta) + " · " + meta.duration + " с"));
+    const dl = h("button", { type: "button" }, "Завантажити");
+    dl.addEventListener("click", async () => {
+      if (isBusy(dl)) return;
+      setBusy(dl, true);
+      try { save(await load(), meta.id + ".mp4"); } catch (e) { $("anote").textContent = explain(e, "Не вдалося завантажити відео."); } finally { setBusy(dl, false); }
+    });
+    const bin = h("button", { type: "button", className: "bin" }, "У кошик");
+    bin.setAttribute("aria-label", "Перемістити в кошик: відео " + short(motionLabel(meta)));
+    bin.addEventListener("click", () => trashVideo(tile));
+    el.append(h("div", { className: "acts" }, dl, bin));
+  }
+
+  // Runs inside the queue. A paid clip is never repeated once we hold its meta.
+  tile.process = async () => {
+    if (tile.dead) return;
+    if (!tile.meta) {
+      tile.running();
+      const res = await apiQuiet("/api/animate", opts.payload, TIMEOUT.vid);
+      if (!res.ok) {
+        const kind = res.stale ? "stale" : res.ambiguous ? "ambiguous" : undefined;
+        return tile.fail(res.server ? "Не вийшло: " + res.error : kind === "ambiguous" ? AMBIGUOUS_V : res.error, kind);
+      }
+      if (!res.data || typeof res.data.id !== "string") return tile.fail(AMBIGUOUS_V, "ambiguous");
+      tile.meta = res.data;
+      store.videos.unshift(tile.meta);
+      if (tile.place) tile.place(tile.meta);
+    }
+    show();
+    updateChrome();
+  };
+
+  tile.submit = () => { tile.queued(); (opts.meta ? enqueueGallery : enqueueVideo)(tile.process); };
+
+  tile.remove = () => {
+    tile.dead = true;
+    stopTimer();
+    if (tile.url) URL.revokeObjectURL(tile.url);
+    tile.url = null;
+    el.remove();
+    tiles.delete(tile);
+    if (opts.onRemove) opts.onRemove();
+  };
+
+  if (opts.meta && role === "trashed") tile.addPick();
+  tiles.add(tile);
+  return tile;
+}
+
+// Puts a finished or restored clip into its group and section (the tab must be built).
+function placeVideo(meta, existing) {
+  if (!animBuilt) return null;
+  const group = vgroupFor(meta.parent, meta.prompt);
+  const section = vsectionFor(group, meta.motion, meta.duration);
+  const tile = existing || makeVideoTile({ meta, onRemove: () => vcleanup(group, section) });
+  tile.group = group;
+  section.grid.prepend(tile.el);
+  if (!existing) tile.submit();
+  return tile;
+}
+
+function generateVideos(payloads) {
+  const made = [];
+  for (const payload of payloads) {
+    const group = vgroupFor(payload.parent);
+    const section = vsectionFor(group, payload.motion, payload.duration);
+    const tile = makeVideoTile({ payload, onRemove: () => vcleanup(group, section) });
+    tile.place = () => vgroup_move(group);
+    section.grid.prepend(tile.el);
+    made.push(tile);
+  }
+  made.forEach((t) => t.submit());
+  updateChrome();
+  if (made.length && !reducedMotion()) made[0].el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+const vgroup_move = (group) => { if (group.el.isConnected) $("vresults").prepend(group.el); };
+
+function startAnimFromForm() {
+  if (isBusy($("ago"))) return;
+  $("amsg").textContent = "";
+  $("anote").textContent = "";
+  const picks = stripAnim.chosen().filter((t) => !trashedIds.has(t.meta.id));
+  if (!startGuard(picks.length, true)) return;
+  const motion = $("aprompt").value.trim();
+  const duration = Number($("adur").value);
+  generateVideos(picks.map((t) => ({ parent: t.meta.id, motion, duration })));
+}
+$("ago").addEventListener("click", startAnimFromForm);
+$("aprompt").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); if (!e.repeat) startAnimFromForm(); }
+});
+
+async function trashVideo(tile) {
+  const meta = tile.meta;
+  const res = await apiQuiet("/api/videos/trash", { ids: [meta.id] });
+  if (!res.ok) { $("anote").textContent = res.error; return; }
+  meta.trashed = new Date().toISOString();
+  store.videos = store.videos.filter((m) => m.id !== meta.id);
+  store.trash.unshift(meta);
+  tile.remove();
+  if (trashBuilt) addTrashTile(meta, true);
+  showUndo([meta]);
+  updateChrome();
+}
+
+function restoreVideosLocal(metas) {
+  for (const meta of metas) {
+    store.trash = store.trash.filter((m) => m.id !== meta.id);
+    trashRest = trashRest.filter((m) => m.id !== meta.id);
+    delete meta.trashed;
+    const tt = trashTiles.get(meta.id);
+    if (tt) tt.remove();
+    insertSorted(store.videos, meta);
+    placeVideo(meta);
+  }
   updateChrome();
 }
 
@@ -1672,7 +1943,8 @@ $("clear").addEventListener("click", clearPicks);
 
 guarded($("dl"), async () => {
   barNote();
-  const picked = barPicked();
+  const picked = barPicked().filter((t) => !isVideo(t.meta));
+  if (!picked.length) return barNote("Відео завантажується з вкладки «Анімація» після відновлення.");
   try {
     if (picked.length === 1) {
       const t = picked[0];
@@ -1707,7 +1979,7 @@ guarded($("del"), async () => {
 });
 
 /* ---------- trash: soft delete with undo, and the «Кошик» tab ---------- */
-const originLabel = (m) => (!isMod(m) ? "Оригінал" : m.market ? marketLabel(m.market) : "Модифікація: " + (m.change || "варіації"));
+const originLabel = (m) => isVideo(m) ? "Анімація: " + (m.motion || "без опису") + " · " + m.duration + " с" : (!isMod(m) ? "Оригінал" : m.market ? marketLabel(m.market) : "Модифікація: " + (m.change || "варіації"));
 const byCreatedDesc = (a, b) => b.created - a.created;
 function insertSorted(list, meta) {
   const at = list.findIndex((m) => m.created < meta.created);
@@ -1738,7 +2010,8 @@ function syncSubTrash(id) {
 
 function addTrashTile(meta, front) {
   if (trashTiles.has(meta.id)) return;
-  const t = makeTile({ role: "trashed", meta, onRemove: () => { if (trashTiles.get(meta.id) === t) trashTiles.delete(meta.id); } });
+  const opts = { role: "trashed", meta, onRemove: () => { if (trashTiles.get(meta.id) === t) trashTiles.delete(meta.id); } };
+  const t = isVideo(meta) ? makeVideoTile(opts) : makeTile(opts);
   trashTiles.set(meta.id, t);
   if (front) $("tgrid").prepend(t.el); else $("tgrid").append(t.el);
   t.submit();
@@ -1821,9 +2094,13 @@ function placeMod(meta) {
 }
 
 async function restoreMetas(metas) {
-  const res = await apiQuiet("/api/gallery/restore", { ids: metas.map((m) => m.id) });
-  if (!res.ok) { $("tmsg").textContent = res.error; return barNote(res.error); }
-  restoreLocal(metas);
+  const imgs = metas.filter((m) => !isVideo(m)), vids = metas.filter(isVideo);
+  for (const [route, list, local] of [["/api/gallery/restore", imgs, restoreLocal], ["/api/videos/restore", vids, restoreVideosLocal]]) {
+    if (!list.length) continue;
+    const res = await apiQuiet(route, { ids: list.map((m) => m.id) });
+    if (!res.ok) { $("tmsg").textContent = res.error; return barNote(res.error); }
+    local(list);
+  }
 }
 
 function buildTrash() {
@@ -1877,21 +2154,23 @@ function twoClick(btn, label, action) {
 }
 
 async function deleteForever(metas) {
-  const ids = metas.map((m) => m.id);
-  for (let i = 0; i < ids.length; i += 200) {
-    const res = await apiQuiet("/api/gallery/delete", { ids: ids.slice(i, i + 200) });
-    if (!res.ok) { $("tmsg").textContent = res.error; break; }
-    const gone = new Set(ids.slice(i, i + 200));
-    for (const id of gone) {
-      trashedIds.delete(id);
-      const tt = trashTiles.get(id);
-      if (tt) tt.remove();
-      const sub = subs.get(id);
-      if (sub && sub.thumb) sub.thumb.gone();
-      syncSubTrash(id);
+  for (const [route, list] of [["/api/gallery/delete", metas.filter((m) => !isVideo(m))], ["/api/videos/delete", metas.filter(isVideo)]]) {
+    const ids = list.map((m) => m.id);
+    for (let i = 0; i < ids.length; i += 200) {
+      const res = await apiQuiet(route, { ids: ids.slice(i, i + 200) });
+      if (!res.ok) { $("tmsg").textContent = res.error; return; }
+      const gone = new Set(ids.slice(i, i + 200));
+      for (const id of gone) {
+        trashedIds.delete(id);
+        const tt = trashTiles.get(id);
+        if (tt) tt.remove();
+        const sub = subs.get(id);
+        if (sub && sub.thumb) sub.thumb.gone();
+        syncSubTrash(id);
+      }
+      store.trash = store.trash.filter((m) => !gone.has(m.id));
+      trashRest = trashRest.filter((m) => !gone.has(m.id));
     }
-    store.trash = store.trash.filter((m) => !gone.has(m.id));
-    trashRest = trashRest.filter((m) => !gone.has(m.id));
   }
 }
 
@@ -1926,11 +2205,13 @@ async function start() {
   const first = parseHash();
   if (first.tab === "modifications") wantedSub = first.sub;
   showTab(first.tab);
-  const [config, visuals, originals, mods, trashed] = await Promise.all([
+  const [config, visuals, originals, mods, trashed, videos, videosTrashed] = await Promise.all([
     apiQuiet("/api/config"), apiQuiet("/api/visuals"),
-    apiQuiet("/api/gallery?kind=original"), apiQuiet("/api/gallery?kind=modification"), apiQuiet("/api/gallery?trashed=1")]);
+    apiQuiet("/api/gallery?kind=original"), apiQuiet("/api/gallery?kind=modification"), apiQuiet("/api/gallery?trashed=1"),
+    apiQuiet("/api/videos"), apiQuiet("/api/videos?trashed=1")]);
   if (config.ok && config.data && typeof config.data === "object") CONFIG = Object.assign(CONFIG, config.data);
   if (visuals.ok && visuals.data && visuals.data.available === false) showKeyBanner(visuals.data);
+  setupVideo();
 
   const o = listOf(originals);
   if (o) {
@@ -1951,13 +2232,32 @@ async function start() {
   else $("mnote").textContent = mods.stale ? STALE : "Не вдалося завантажити модифікації. Оновіть сторінку.";
   const tr = listOf(trashed);
   if (tr) { store.trash = tr.slice(); tr.forEach((m) => trashedIds.add(m.id)); }
+  const vs = listOf(videos);
+  if (vs) store.videos = vs.slice();
+  else $("anote").textContent = videos.stale ? STALE : "Не вдалося завантажити анімації. Оновіть сторінку.";
+  const vt = listOf(videosTrashed);
+  if (vt) store.trash = [...store.trash, ...vt].sort(byCreatedDesc);
   loaded = true;
   if (active === "trash") buildTrash();
   if (active === "modifications") buildMods();
   if (active === "animation") buildAnim();
   lockGen("startup", false);
   lockMod("startup", false);
+  lockAnim("startup", false);
   updateChrome();
+}
+
+// Durations come from the server; without a key (or provider) the tab stays visible but disabled.
+function setupVideo() {
+  const v = CONFIG.video || {};
+  const list = Array.isArray(v.durations) && v.durations.length ? v.durations : [5];
+  const keep = $("adur").value;
+  $("adur").replaceChildren(...list.map((d) => h("option", { value: String(d), selected: String(d) === keep || (!list.map(String).includes(keep) && d === (v.default_duration || 5)) }, d + " с")));
+  if (v.available === false) {
+    $("abanner").hidden = false;
+    lockAnim("key", true);
+    for (const el of [$("aprompt"), $("adur"), ...$("achips").children]) el.disabled = true;
+  }
 }
 start();
 </script>

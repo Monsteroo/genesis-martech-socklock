@@ -111,3 +111,30 @@ def http_ok(payload):
 
 def http_error(status, payload=None):
     return {"status": status, "body": json.dumps(payload if payload is not None else {}).encode("utf-8")}
+
+
+MP4_BYTES = b"\x00\x00\x00\x18ftypmp42" + b"fake"
+
+
+class FakeVideo:
+    """Replaces only the video provider. Records calls and writes a tiny MP4-looking file."""
+
+    kind = "video"
+    name = "fake"
+
+    def __init__(self, available=(True, ""), fail=None):
+        self._available = available
+        self.fail = fail
+        self.calls = []
+
+    def available(self):
+        return self._available
+
+    def animate(self, prompt, src, dest, duration=5):
+        self.calls.append((prompt, str(src), duration))
+        if self.fail:
+            raise self.fail
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(MP4_BYTES)
+        return dest

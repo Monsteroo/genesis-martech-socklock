@@ -71,3 +71,23 @@ class LiveOpenAI(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(os.environ.get("RUN_HEYGEN") == "1",
+                     "RUN_HEYGEN=1 викликає справжній HeyGen API (платно, з вашого ключа)")
+class LiveHeyGen(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        saved = dict(os.environ)
+        cls.addClassCleanup(lambda: (os.environ.clear(), os.environ.update(saved)))
+        envfile.load_dotenv(ROOT / ".env", allowed=envfile.ENGINE_VARS)
+        if not (os.environ.get("HEYGEN_API_KEY") or "").strip():
+            raise unittest.SkipTest("Немає HEYGEN_API_KEY (.env або середовище)")
+
+    def test_heygen_image_to_video(self):
+        """ONE 5-second clip at the lowest resolution (480p): a paid call."""
+        from engine import video
+        dest = Path(tempfile.mkdtemp()) / "clip.mp4"
+        provider = video.HeyGenVideoProvider(resolution="480p")
+        provider.animate(video.motion_prompt("повільний наїзд"), visuals.DEMO_FRAME, dest, 5)
+        self.assertEqual(dest.read_bytes()[4:8], b"ftyp")

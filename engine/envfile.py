@@ -26,7 +26,8 @@ def parse(text):
     return values
 
 
-ENGINE_VARS = ("OPENAI_", "IMAGE_WORKERS", "DEMO_IMAGE_DELAY", "ENGINE_BACKEND")
+ENGINE_VARS = ("OPENAI_", "IMAGE_WORKERS", "DEMO_IMAGE_DELAY", "DEMO_VIDEO_DELAY", "ENGINE_BACKEND",
+               "HEYGEN_", "VIDEO_WORKERS")
 
 
 def _allowed(key, allowed):
