@@ -10,7 +10,7 @@
 @media (prefers-color-scheme:dark){:root{--bg:#14141a;--fg:#eee;--mut:#9aa;--line:#2b2b36;--edge:#6d6d80;--acc:#8b87ff;--acc-fg:#101014;--card:#1b1b24;--bad:#ff8a80;--sel:#8b87ff;--backing:rgba(20,20,26,.8)}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,sans-serif}
-main{max-width:1100px;margin:0 auto;padding:16px 16px calc(120px + env(safe-area-inset-bottom))}
+main{max-width:1600px;margin:0 auto;padding:16px 16px calc(120px + env(safe-area-inset-bottom))}
 h1{font-size:22px;margin:0 0 12px}
 h2{font-size:17px;margin:22px 0 8px;display:flex;align-items:baseline;gap:10px}
 #banner{background:#fff3cd;color:#5c4400;border:1px solid #ecd38a;border-radius:10px;padding:12px 14px;margin:0 0 12px}
@@ -76,8 +76,17 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
 .subpanel.gone .againbox{display:none}
 .againbox{display:inline-flex;gap:4px;align-items:center}
 .acts select{font-size:13px;padding:4px 6px}
-.section{margin-top:18px}
+.subpanel:not([hidden]){display:grid;grid-template-columns:minmax(0,1fr);gap:14px;grid-auto-flow:dense;align-items:start}
+.subpanel .origline{grid-column:1/-1}
+.section{margin-top:0;min-width:0;border:1px solid var(--line);border-radius:14px;padding:10px 12px 12px}
 .section h3{font-size:15px;margin:0 0 4px}
+.section .grid{margin-top:8px}
+.section .more{margin-top:12px}
+@media (min-width:600px){
+.subpanel:not([hidden]){grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+.section[data-span="2"]{grid-column:span 2}
+.section[data-span="all"]{grid-column:1/-1}
+}
 .fmt{text-align:left}
 .subpanel .origline{margin-top:6px}
 .gthumb{flex:0 0 40px;width:40px;height:40px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--card);display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:11px;text-align:center}
@@ -1074,6 +1083,8 @@ function makeSection(sub, change, size) {
   const el = h("section", { className: "section" }, h("h3", {}, title), grid, more);
   el.setAttribute("aria-label", title);
   const section = { el, rest: [], members: new Set() };
+  // Layout hint only: few tiles = a narrow card, many = a full-width row.
+  const fit = () => { const n = section.members.size + section.rest.length; el.dataset.span = n <= 1 ? "1" : n <= 3 ? "2" : "all"; };
 
   // Keeps the newest-first order when a restored image comes back.
   section.insert = (t) => {
@@ -1081,13 +1092,15 @@ function makeSection(sub, change, size) {
     const byEl = new Map([...section.members].map((m) => [m.el, m]));
     const later = [...grid.children].find((c) => { const m = byEl.get(c); return m && m !== t && m.meta && m.meta.created < t.meta.created; });
     grid.insertBefore(t.el, later || null);
+    fit();
   };
-  section.addFirst = (list) => { list.forEach((t) => section.members.add(t)); grid.prepend(...list.map((t) => t.el)); };
+  section.addFirst = (list) => { list.forEach((t) => section.members.add(t)); grid.prepend(...list.map((t) => t.el)); fit(); };
 
   section.page = () => {
     const batch = section.rest.splice(0, GROUP_PAGE).map((meta) => makeTile({ role: "modification", meta, group: section }));
     for (const t of batch) { section.members.add(t); grid.append(t.el); }
     more.hidden = section.rest.length === 0;
+    fit();
     batch.forEach((t) => t.submit());
     updateChrome();
   };
@@ -1095,6 +1108,7 @@ function makeSection(sub, change, size) {
 
   section.drop = (t) => {
     section.members.delete(t);
+    fit();
     if (section.members.size > 0) return;
     if (section.rest.length) return section.page();
     el.remove();
