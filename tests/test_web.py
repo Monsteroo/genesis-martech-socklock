@@ -2,6 +2,7 @@ import http.client
 import io
 import json
 import os
+import re
 import threading
 import unittest
 import zipfile
@@ -551,7 +552,7 @@ class ModifyWebTests(HttpMixin, unittest.TestCase):
         _, cfg = self.request("GET", "/api/config")
         markets = json.loads(cfg)["data"]["markets"]
         self.assertEqual([m["key"] for m in markets], ["us", "uk", "ca", "au", "de", "fr", "es"])
-        self.assertEqual(sorted(markets[0]), ["key", "lang", "name", "name_uk", "status"])
+        self.assertEqual(sorted(markets[0]), ["catalog_locale", "key", "lang", "name", "name_uk", "status"])
 
     def test_modify_accepts_a_format_and_rejects_a_bad_one(self):
         _, orig = self.post("/api/gen", {"prompt": "Socks", "format": "wide"})
@@ -614,6 +615,122 @@ class ModifyWebTests(HttpMixin, unittest.TestCase):
         [t.start() for t in threads]
         [t.join(10) for t in threads]
         self.assertEqual(results, [200, 200])
+
+
+class CaptionsWebTests(HttpMixin, unittest.TestCase):
+    CAP = "cap_0123abcd"
+
+    def setUp(self):
+        from engine.llm import DemoBackend
+        from tests.test_service import real_png
+        self.real_png = real_png
+        self.fake = FakeImages()
+        self.engine = Engine(make_root(), DemoBackend(), images=self.fake)
+        self.server = make_server(self.engine, port=0, image_workers=2)
+        self.port = self.server.server_port
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.auth = {"X-Token": self.server.token}
+
+    def call(self, method, path, body=None, headers="auth", host=None):
+        headers = self.auth if headers == "auth" else headers
+        status, text = self.request(method, path, body, headers, host)
+        return status, (json.loads(text) if text.startswith("{") else text)
+
+    def raw_post(self, path, data, headers=None, host=None, declared=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.putrequest("POST", path, skip_host=True)
+        conn.putheader("Host", host or f"127.0.0.1:{self.port}")
+        for k, v in {**self.auth, "Content-Type": "image/png", **(headers or {})}.items():
+            conn.putheader(k, v)
+        conn.putheader("Content-Length", str(len(data) if declared is None else declared))
+        conn.endheaders(data)
+        resp = conn.getresponse()
+        body = resp.read()
+        conn.close()
+        return resp.status, json.loads(body)
+
+    def test_captions_need_token_and_host(self):
+        self.assertEqual(self.call("GET", "/api/captions", headers={})[0], 403)
+        self.assertEqual(self.call("GET", "/api/captions", host="evil.example")[0], 403)
+        self.assertEqual(self.call("PUT", "/api/captions", {"locale": "en-US", "messages": {}}, headers={})[0], 403)
+        self.assertEqual(self.call("POST", "/api/captions/translate", {}, headers={})[0], 403)
+        self.assertEqual(self.call("GET", "/api/captions.po?locale=de", headers={})[0], 403)
+
+    def test_put_get_translate_and_po(self):
+        status, body = self.call("PUT", "/api/captions", {"locale": "en-US", "messages": {self.CAP: "Hello {name}"}})
+        self.assertEqual(status, 200)
+        status, body = self.call("GET", "/api/captions")
+        self.assertEqual(body["data"]["catalogs"]["en-US"]["messages"], {self.CAP: "Hello {name}"})
+        status, body = self.call("POST", "/api/captions/translate", {"ids": [self.CAP], "locales": ["de", "fr"]})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["results"]["de"][self.CAP]["text"], "[demo] Hello {name}")
+        status, po = self.call("GET", "/api/captions.po?locale=de")
+        self.assertEqual(status, 200)
+        self.assertIn('msgid "cap_0123abcd"\nmsgstr "[demo] Hello {name}"', po)
+        _, _, headers = self.request_headers("GET", "/api/captions.po?locale=de", self.auth)
+        self.assertTrue(headers["Content-Type"].startswith("text/x-gettext-translation") or headers["Content-Type"].startswith("text/plain"))
+        self.assertIn("de.po", headers["Content-Disposition"])
+
+    def test_validation_errors_are_400(self):
+        for body in ({"locale": "xx", "messages": {}}, {"locale": "en-US", "messages": {"bad": "t"}},
+                     {"locale": "en-US", "messages": {self.CAP: "Hi {x"}}, {"locale": "en-US"}, {"locale": "de", "messages": {self.CAP: "t"}}):
+            self.assertEqual(self.call("PUT", "/api/captions", body)[0], 400, body)
+        for body in ({}, {"ids": [], "locales": ["de"]}, {"ids": [self.CAP], "locales": ["en-US"]}, {"ids": ["../x"], "locales": ["de"]}):
+            self.assertEqual(self.call("POST", "/api/captions/translate", body)[0], 400, body)
+        for q in ("", "?locale=xx", "?locale=../x"):
+            self.assertEqual(self.call("GET", "/api/captions.po" + q)[0], 400, q)
+
+    def test_oversized_put_is_413(self):
+        self.assertEqual(self.call("PUT", "/api/captions", {"locale": "en-US", "messages": {self.CAP: "x" * 200_000}})[0], 413)
+
+    def test_overlay_over_http(self):
+        self.call("PUT", "/api/captions", {"locale": "en-US", "messages": {self.CAP: "Hi"}})
+        _, orig = self.call("POST", "/api/gen", {"prompt": "Socks"})
+        oid = orig["data"]["id"]
+        q = f"?parent={oid}&market=de&caption={self.CAP}"
+        status, body = self.raw_post("/api/gallery/overlay" + q, self.real_png())
+        self.assertEqual(status, 200, body)
+        self.assertEqual((body["data"]["caption"], body["data"]["locale"], body["data"]["market"]), (self.CAP, "de", "de"))
+        status, _, ctype = self.request_raw("GET", f"/api/g/{body['data']['id']}.png", headers=self.auth)
+        self.assertEqual((status, ctype), (200, "image/png"))
+
+    def test_overlay_guards(self):
+        self.call("PUT", "/api/captions", {"locale": "en-US", "messages": {self.CAP: "Hi"}})
+        _, orig = self.call("POST", "/api/gen", {"prompt": "Socks"})
+        q = f"?parent={orig['data']['id']}&market=de&caption={self.CAP}"
+        self.assertEqual(self.raw_post("/api/gallery/overlay" + q, self.real_png(), {"X-Token": "no"})[0], 403)
+        self.assertEqual(self.raw_post("/api/gallery/overlay" + q, self.real_png(), host="evil.example")[0], 403)
+        self.assertEqual(self.raw_post("/api/gallery/overlay" + q, b"nope" * 10)[0], 400)
+        self.assertEqual(self.raw_post("/api/gallery/overlay?parent=../x&market=de&caption=" + self.CAP, self.real_png())[0], 400)
+        self.assertEqual(self.raw_post("/api/gallery/overlay" + q, b"", declared=12 * 1024 * 1024 + 1)[0], 413)
+        self.assertEqual(self.raw_post("/api/gallery/overlay" + q, self.real_png(), {"Content-Type": "text/html"})[0], 400)
+        self.assertEqual(len(self.engine.list_gallery()["items"]), 1)
+
+    def test_localize_no_text_flag(self):
+        _, orig = self.call("POST", "/api/gen", {"prompt": "Socks, підпис «Sale»"})
+        status, body = self.call("POST", "/api/localize", {"parent": orig["data"]["id"], "market": "fr", "no_text": True})
+        self.assertEqual(status, 200)
+        self.assertIn("no text", self.fake.edits[0][0].lower())
+        self.assertEqual(self.call("POST", "/api/localize", {"parent": orig["data"]["id"], "market": "fr", "no_text": "yes"})[0], 400)
+
+    def test_vendor_files_are_whitelisted_with_js_mime_and_nosniff(self):
+        status, data, headers = self.request_headers("GET", "/vendor/lingui-core.mjs")
+        self.assertEqual(status, 200)
+        self.assertTrue(headers["Content-Type"].startswith("text/javascript"))
+        self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+        self.assertIn(b"setupI18n", data)
+        for path in ("/vendor/LICENSE", "/vendor/README.md", "/vendor/../engine/web.py", "/vendor/", "/vendor/nope.mjs",
+                     "/vendor/lingui-core.mjs/x", "/vendor/%2e%2e/engine/web.py"):
+            self.assertEqual(self.request_headers("GET", path)[0], 404, path)
+        self.assertEqual(self.request_headers("GET", "/vendor/lingui-core.mjs", host="evil.example")[0], 403)
+
+    def test_page_csp_keeps_script_src_self_without_cdn(self):
+        _, html = self.request("GET", "/")
+        csp = re.search(r'Content-Security-Policy" content="([^"]+)"', html).group(1)
+        self.assertIn("script-src 'self'", csp)
+        self.assertNotIn("http", csp)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,10 @@
 import json
+import os
 import re
 import threading
 from pathlib import Path
 
+from engine import captions as captionlib
 from engine import compose as composer
 from engine import gallery as galleries
 from engine import glossary
@@ -16,6 +18,7 @@ from engine.library import STATUSES, Library, LibraryError
 
 MAX_QUICK_PROMPT = 1000
 MAX_CHANGE = galleries.MAX_CHANGE
+MAX_OVERLAY = 12 * 1024 * 1024
 
 
 class Engine:
@@ -30,6 +33,7 @@ class Engine:
         self.images = images if images is not None else visuals.NoImages()
         self.image_store = imgs.ImageStore(self.root / "library" / "images")
         self.gallery = galleries.Gallery(self.root / "library" / "gallery")
+        self.captions = captionlib.Captions(self.root / "library" / "captions", llm, self.glossary)
         self._image_locks = {}
         self._image_locks_guard = threading.Lock()
 
@@ -93,19 +97,55 @@ class Engine:
     def modify_image(self, parent=None, change="", variation=0, format=None):
         return self._modify(parent, change, variation, format)
 
-    def localize_image(self, parent=None, market=None, format=None):
+    def localize_image(self, parent=None, market=None, format=None, no_text=False):
         if not (isinstance(market, str) and market in visuals.MARKETS):
             raise LibraryError("Невідомий ринок.")
-        return self._modify(parent, "", 0, format, market)
+        if no_text not in (None, True, False) or isinstance(no_text, (int, float)) and not isinstance(no_text, bool):
+            raise LibraryError("Некоректний параметр no_text.")
+        return self._modify(parent, "", 0, format, market, bool(no_text))
 
-    def _modify(self, parent, change, variation, format, market=None):
-        base_prompt, size, style, src, parent_meta = self._parent_meta(parent)
+    @staticmethod
+    def _chain(parent, parent_meta):
         chained = parent_meta.get("kind") == "modification" or isinstance(parent_meta.get("parent"), str)
         if chained:
             top = parent_meta.get("root")
             root = top if isinstance(top, str) and galleries._ID.fullmatch(top) else parent_meta.get("parent")
         else:
             root = parent
+        return chained, root
+
+    def overlay_image(self, png, parent=None, market=None, caption=None):
+        """Stores a finished image whose caption the page drew from the Lingui catalog (no model call)."""
+        if not (isinstance(market, str) and market in visuals.MARKETS):
+            raise LibraryError("Невідомий ринок.")
+        if not (isinstance(caption, str) and captionlib.ID.fullmatch(caption)) or self.captions.source_text(caption) is None:
+            raise LibraryError("Підпису немає в каталозі.")
+        if not isinstance(png, (bytes, bytearray)) or len(png) > MAX_OVERLAY:
+            raise LibraryError("Зображення завелике (до 12 МБ).")
+        if png[:8] != visuals.PNG_MAGIC or png[12:16] != b"IHDR" or len(png) < 33:
+            raise LibraryError("Очікується PNG-зображення.")
+        width, height = int.from_bytes(png[16:20], "big"), int.from_bytes(png[20:24], "big")
+        if not (1 <= width <= 8192 and 1 <= height <= 8192):
+            raise LibraryError("Некоректні розміри зображення.")
+        base_prompt, size, style, _src, parent_meta = self._parent_meta(parent)
+        _chained, root = self._chain(parent, parent_meta)
+        data = bytes(png)
+
+        def make(dest):
+            tmp = dest.with_suffix(".png.part")
+            try:
+                tmp.write_bytes(data)
+                os.replace(tmp, dest)
+            finally:
+                tmp.unlink(missing_ok=True)
+
+        return self._store(make, prompt=base_prompt, size=size, parent=parent, style=style, kind="modification",
+                           change=visuals.localize_label(market), root=root, market=market, caption=caption,
+                           locale=captionlib.locale_for_market(market))
+
+    def _modify(self, parent, change, variation, format, market=None, no_text=False):
+        base_prompt, size, style, src, parent_meta = self._parent_meta(parent)
+        chained, root = self._chain(parent, parent_meta)
         parent_change = parent_meta.get("change")
         if not (isinstance(parent_change, str) and len(parent_change) <= MAX_CHANGE):
             parent_change = None
@@ -128,8 +168,9 @@ class Engine:
             quoted = visuals.quoted_texts(parent_change) if chained else []
             if not quoted and not any(w in lowered for w in visuals._NO_TEXT_WORDS):
                 quoted = visuals.quoted_texts(base_prompt)
-            final = visuals.modify_prompt(base_prompt, visuals.localize_change(market, "; ".join(quoted) or None),
-                                          0, new_size, parent_change, chained, translate=True)
+            localized = (visuals.localize_change_no_text(market) if no_text
+                         else visuals.localize_change(market, "; ".join(quoted) or None))
+            final = visuals.modify_prompt(base_prompt, localized, 0, new_size, parent_change, chained, translate=True)
             change = visuals.localize_label(market)
         else:
             final = visuals.modify_prompt(base_prompt, change, variation, new_size, parent_change, chained)

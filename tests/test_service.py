@@ -584,5 +584,60 @@ class LocalizeImageTests(unittest.TestCase):
         self.assertIsNone(self.engine.list_gallery(kind="original")["items"][0]["market"])
 
 
+def real_png(w=64, h=48):
+    import struct, zlib
+    def chunk(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+    raw = b"".join(b"\x00" + b"\xff\x00\x00" * w for _ in range(h))
+    return (bytes([137, 80, 78, 71, 13, 10, 26, 10]) + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+class NoTextLocalizeAndOverlayTests(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.fake = FakeImages()
+        self.engine = Engine(self.root, FakeLLM(), images=self.fake)
+        self.original = self.engine.quick_image('Socks on a floor, підпис «Sale»', "wide")
+        self.engine.captions.put("en-US", {"cap_0123abcd": "Pairs stay together"})
+
+    def test_no_text_localization_asks_for_a_text_free_image(self):
+        meta = self.engine.localize_image(self.original["id"], "de", None, True)
+        prompt = self.fake.edits[0][0]
+        self.assertIn("no text", prompt.lower())
+        self.assertNotIn("Sale", prompt)
+        self.assertIn("Germany", prompt)
+        self.assertEqual((meta["market"], meta["change"]), ("de", "Локалізація: Німеччина"))
+
+    def test_overlay_is_stored_as_a_modification_chain(self):
+        base = self.engine.localize_image(self.original["id"], "de", None, True)
+        png = real_png()
+        meta = self.engine.overlay_image(png, base["id"], "de", "cap_0123abcd")
+        self.assertEqual((meta["kind"], meta["parent"], meta["root"], meta["market"], meta["caption"], meta["locale"]),
+                         ("modification", base["id"], self.original["id"], "de", "cap_0123abcd", "de"))
+        self.assertEqual(meta["change"], "Локалізація: Німеччина")
+        self.assertEqual(self.engine.gallery.path(meta["id"]).read_bytes(), png)
+        items = self.engine.list_gallery(root=self.original["id"])["items"]
+        self.assertEqual({i["id"] for i in items}, {base["id"], meta["id"]})
+
+    def test_overlay_on_an_original_has_that_original_as_root(self):
+        meta = self.engine.overlay_image(real_png(), self.original["id"], "uk", "cap_0123abcd")
+        self.assertEqual((meta["parent"], meta["root"], meta["locale"]), (self.original["id"], self.original["id"], "en-GB"))
+
+    def test_overlay_rejects_bad_input_and_writes_nothing(self):
+        o = self.original["id"]
+        bad = [(b"", o, "de", "cap_0123abcd"), (b"not a png" * 10, o, "de", "cap_0123abcd"),
+               (real_png()[:20], o, "de", "cap_0123abcd"), (real_png() + b"x" * (12 * 1024 * 1024), o, "de", "cap_0123abcd"),
+               (real_png(), "../x", "de", "cap_0123abcd"), (real_png(), "g00000000", "de", "cap_0123abcd"),
+               (real_png(), o, "xx", "cap_0123abcd"), (real_png(), o, None, "cap_0123abcd"),
+               (real_png(), o, "de", "cap_zzzzzzzz"), (real_png(), o, "de", "cap_00000000"), (real_png(), o, "de", None),
+               (real_png(100000, 1), o, "de", "cap_0123abcd")]
+        for png, parent, market, cap in bad:
+            with self.subTest(parent=parent, market=market, cap=cap, n=len(png)):
+                with self.assertRaises(LibraryError):
+                    self.engine.overlay_image(png, parent, market, cap)
+        self.assertEqual(len(self.engine.list_gallery()["items"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

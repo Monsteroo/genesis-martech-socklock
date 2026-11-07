@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from engine import visuals
+from engine import captions, visuals
 from engine.library import LibraryError
 from engine.llm import LLMError
 
@@ -18,9 +18,16 @@ GALLERY_PNG = re.compile(r"/api/g/(g[0-9a-f]{8})\.png")
 ROUTES = {
     "/api/gen": lambda e, b: e.quick_image(b.get("prompt", ""), b.get("format") or "vertical", b.get("style")),
     "/api/modify": lambda e, b: e.modify_image(b.get("parent"), b.get("change", ""), b.get("variation", 0), b.get("format")),
-    "/api/localize": lambda e, b: e.localize_image(b.get("parent"), b.get("market"), b.get("format")),
+    "/api/localize": lambda e, b: e.localize_image(b.get("parent"), b.get("market"), b.get("format"), b.get("no_text")),
     "/api/gallery/delete": lambda e, b: e.delete_gallery(b["ids"]),
+    "/api/captions/translate": lambda e, b: e.captions.translate(b.get("ids"), b.get("locales")),
 }
+PUT_ROUTES = {
+    "/api/captions": lambda e, b: e.captions.put(b.get("locale"), b.get("messages"), b.get("status"), b.get("delete")),
+}
+VENDOR = {"lingui-core.mjs": "text/javascript; charset=utf-8"}   # exact whitelist for /vendor/<file>
+OVERLAY_PATH = "/api/gallery/overlay"
+MAX_OVERLAY = 12 * 1024 * 1024
 
 IMAGE_ROUTES = {"/api/gen", "/api/modify", "/api/localize"}
 NO_LOCK_ROUTES = {"/api/gallery/delete"}
@@ -100,6 +107,28 @@ def make_server(engine, port=8780, image_workers=None):
             url = urlparse(self.path)
             if url.path in pages:
                 return self._send(200, pages[url.path], "text/html; charset=utf-8", {"X-Frame-Options": "DENY"})
+            if url.path.startswith("/vendor/"):
+                name = url.path[len("/vendor/"):]
+                if name not in VENDOR:
+                    return self._json(404, {"ok": False, "error": "Не знайдено"})
+                try:
+                    data = (WEB_DIR / "vendor" / name).read_bytes()
+                except OSError:
+                    return self._json(404, {"ok": False, "error": "Не знайдено"})
+                return self._send_bytes(200, data, VENDOR[name], cache="no-cache")
+            if url.path in ("/api/captions", "/api/captions.po"):
+                if not self._token_ok():
+                    return self._json(403, {"ok": False, "error": "Невірний токен"})
+                try:
+                    if url.path == "/api/captions":
+                        return self._json(200, {"ok": True, "data": engine.captions.get_all()})
+                    locale = parse_qs(url.query).get("locale", [""])[0]
+                    text = engine.captions.po(locale)
+                except LibraryError as exc:
+                    return self._json(400, {"ok": False, "error": str(exc)})
+                return self._send(200, text, "text/plain; charset=utf-8",
+                                  {"Content-Disposition": f'attachment; filename="{locale}.po"',
+                                   "X-Content-Type-Options": "nosniff"})
             if url.path == "/api/visuals":
                 ok, reason = engine.images.available()
                 return self._json(200, {"ok": True, "data": {"available": ok, "reason": reason}})
@@ -110,7 +139,8 @@ def make_server(engine, port=8780, image_workers=None):
                     "provider": getattr(images, "name", ""),
                     "image_model": getattr(images, "model", ""),
                     "price_usd": _price_from_env(),
-                    "markets": [{"key": k, **{f: m[f] for f in ("name_uk", "name", "lang", "status")}}
+                    "markets": [{"key": k, **{f: m[f] for f in ("name_uk", "name", "lang", "status")},
+                                 "catalog_locale": captions.locale_for_market(k)}
                                 for k, m in visuals.MARKETS.items()],
                 }})
             if url.path == "/api/gallery":
@@ -154,6 +184,12 @@ def make_server(engine, port=8780, image_workers=None):
             self._json(404, {"ok": False, "error": "Не знайдено"})
 
         def do_POST(self):
+            self._write("POST")
+
+        def do_PUT(self):
+            self._write("PUT")
+
+        def _write(self, method):
             if not self._host_ok():
                 return self._json(403, {"ok": False, "error": "Host не дозволено"})
             if not self._token_ok():
@@ -164,6 +200,9 @@ def make_server(engine, port=8780, image_workers=None):
                 length = -1
             if length < 0:
                 return self._json(400, {"ok": False, "error": "Некоректний Content-Length"})
+            path = urlparse(self.path).path
+            if method == "POST" and path == OVERLAY_PATH:
+                return self._overlay(length)
             if length > MAX_BODY:
                 return self._json(413, {"ok": False, "error": "Запит завеликий"})
             try:
@@ -172,8 +211,7 @@ def make_server(engine, port=8780, image_workers=None):
                 return self._json(400, {"ok": False, "error": "Некоректний JSON"})
             if not isinstance(body, dict):
                 return self._json(400, {"ok": False, "error": "Очікується JSON-об'єкт"})
-            path = urlparse(self.path).path
-            route = ROUTES.get(path)
+            route = (ROUTES if method == "POST" else PUT_ROUTES).get(path)
             if route is None:
                 return self._json(404, {"ok": False, "error": "Не знайдено"})
             lock = slots if path in IMAGE_ROUTES else None
@@ -192,6 +230,25 @@ def make_server(engine, port=8780, image_workers=None):
             finally:
                 if lock is not None:
                     lock.release()
+
+        def _overlay(self, length):
+            """A finished PNG as the raw body; parent, market and caption travel in the query string."""
+            if length > MAX_OVERLAY:
+                return self._json(413, {"ok": False, "error": "Зображення завелике (до 12 МБ)"})
+            if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "image/png":
+                return self._json(400, {"ok": False, "error": "Очікується image/png"})
+            query = parse_qs(urlparse(self.path).query)
+            one = lambda key: (query.get(key) or [None])[0]
+            try:
+                data = self.rfile.read(length)
+                meta = engine.overlay_image(data, one("parent"), one("market"), one("caption"))
+            except OSError:
+                return self._json(400, {"ok": False, "error": "Помилка файлової системи"})
+            except (LibraryError, ValueError) as exc:
+                return self._json(400, {"ok": False, "error": str(exc)})
+            except Exception:
+                return self._json(500, {"ok": False, "error": "Внутрішня помилка сервера"})
+            self._json(200, {"ok": True, "data": meta})
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.token = token

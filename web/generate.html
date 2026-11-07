@@ -96,6 +96,25 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
 #abanner{background:#fff3cd;color:#5c4400;border:1px solid #ecd38a;border-radius:10px;padding:12px 14px;margin:0 0 12px;font-weight:600}
 @media (prefers-color-scheme:dark){#abanner{background:#3a3120;color:#f2dc9d;border-color:#6b5a2a}}
 @media (max-width:480px){.tabs{gap:0}.tabs button{flex:1 1 auto;min-width:0;padding:10px 4px;font-size:14px}.tabs .count{margin-left:4px;min-width:18px;padding:0 5px}.beta{display:block;margin:0;padding:0 6px;font-size:11px}}
+.capbox{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:8px 12px;margin:8px 0}
+.capbox summary{cursor:pointer;font-weight:600;min-height:32px;display:flex;align-items:center}
+.capbody{display:flex;flex-direction:column;gap:10px;padding:6px 0}
+.caprow{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.caprow textarea{flex:1 1 240px;min-height:48px;padding:8px}
+.caprow input[type="text"]{flex:1 1 200px;width:auto;padding:8px}
+.captable{display:flex;flex-direction:column;gap:6px}
+.capcard{border-top:1px solid var(--line);padding-top:6px;display:flex;flex-direction:column;gap:4px}
+.capcard h4{margin:0;font-size:14px}
+.caploc{min-width:52px;font-size:13px;color:var(--mut)}
+.chip{padding:1px 8px;border-radius:999px;border:1px solid var(--edge);font-size:12px;white-space:nowrap}
+.chip.machine{color:#8a5a00;border-color:#d9b25c}
+.chip.approved{color:#1b6e2b;border-color:#6bb97b}
+.chip.failed{color:var(--bad);border-color:var(--bad)}
+@media (prefers-color-scheme:dark){.chip.machine{color:#f2cd7a}.chip.approved{color:#8ee0a0}}
+.capprev{flex-basis:100%;font-size:13px;color:var(--mut);padding-left:58px;word-break:break-word}
+.capbody .go2{border:0;border-radius:8px;background:var(--acc);color:var(--acc-fg);font:inherit;font-size:14px;font-weight:600;padding:8px 12px;cursor:pointer}
+.capbody .small-btn{border:1px solid var(--edge);background:transparent;color:var(--fg);border-radius:8px;padding:5px 10px;font:inherit;font-size:13px;cursor:pointer}
+@media (max-width:480px){.capprev{padding-left:0}}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -144,6 +163,30 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
     <div id="modform">
       <div class="links"><button id="pickall" type="button">Вибрати всі</button><button id="locsel" type="button" aria-expanded="false">Локалізувати вибране</button></div>
       <div id="locslot"></div>
+      <details id="capbox" class="capbox">
+        <summary>Підписи для ринків (LinguiJS)</summary>
+        <div class="capbody">
+          <div class="mut small">Підпис пишіть англійською (en-US). ICU-змінні: <code>{name}</code>, <code>{count, plural, one {# пара} other {# пар}}</code>. Переклад машинний — його треба вичитати й затвердити. Текст на картинку накладається сторінкою, а не моделлю, тому літери завжди правильні.</div>
+          <div id="caplist"></div>
+          <div class="row"><button type="button" id="capadd" class="small-btn">+ Підпис</button>
+            <button type="button" id="capsave" class="small-btn">Зберегти</button>
+            <button type="button" id="captr" class="go2" aria-disabled="false">Перекласти для ринків</button></div>
+          <div class="row"><label class="lbl" for="capvars">Значення змінних</label>
+            <input type="text" id="capvars" maxlength="120" value="count=2" placeholder="name=Анна, count=2"></div>
+          <div id="capmsg" class="mut small" role="status" aria-live="polite"></div>
+          <div id="captable" class="caption-table"></div>
+          <div class="row"><label class="lbl" for="capdlloc">Експорт .po</label>
+            <select id="capdlloc" aria-label="Локаль для .po"></select>
+            <button type="button" id="capdl" class="small-btn">Завантажити .po</button></div>
+          <fieldset class="locpanel" style="border:0;padding:0;margin:0;min-width:0"><legend>Локалізувати з підписом</legend>
+            <div class="row"><label class="lbl" for="capsel">Підпис</label><select id="capsel"></select></div>
+            <div class="row"><span class="lbl">Місце</span><div class="seg" id="cappos" role="group" aria-label="Місце підпису"></div></div>
+            <div id="capmk"></div>
+            <div class="row"><button type="button" id="capgo" class="go2" aria-disabled="true">Локалізувати з підписом</button></div>
+            <div id="caphint" class="mut small" role="status" aria-live="polite"></div>
+          </fieldset>
+        </div>
+      </details>
       <div id="strip" class="strip" role="group" aria-label="Оригінали для зміни"></div>
       <button id="smore" class="more" type="button" hidden>Показати ще</button>
 
@@ -371,7 +414,7 @@ function startGuard(n) {
 
 /* ---------- options ---------- */
 const COUNTS = [1, 2, 4, 8, 12, 24];   // never above MAX_BATCH
-const state = { count: 4, format: "vertical", style: "", mcount: 4, again: 4 };
+const state = { count: 4, format: "vertical", style: "", mcount: 4, again: 4, cappos: "bottom" };
 try { const saved = Number(localStorage.getItem("againCount")); if (COUNTS.includes(saved)) state.again = saved; } catch (e) { /* storage may be blocked */ }
 
 function segmented(id, key, options, onChange) {
@@ -405,6 +448,7 @@ function updateLabels() {
   $("pickall").textContent = n ? "Зняти" : "Вибрати всі";
   lockMod("none", n === 0);
   lockMod("over", over);
+  capUpdate();
 }
 
 segmented("count", "count", COUNTS.map((n) => [n, String(n)]), updateLabels);
@@ -753,6 +797,7 @@ function makeTile(opts) {
         const from = store.mods.find((m) => m.id === meta.parent);
         el.append(h("div", { className: "mut small clip from" }, "з: " + (from ? from.change || "варіації" : "зміненого")));
       }
+      if (role === "modification" && meta.caption) el.append(h("div", { className: "mut small clip" }, "підпис " + meta.caption + " · " + meta.locale));
       if (role === "modification" && FORMAT_NAME[meta.size]) el.append(h("div", { className: "mut small fmt" }, FORMAT_NAME[meta.size]));
       el.append(actions());
     }
@@ -772,6 +817,23 @@ function makeTile(opts) {
       if (!res.data || typeof res.data.id !== "string") return tile.fail(AMBIGUOUS, "ambiguous");
       tile.meta = res.data;
       if (opts.onFresh) opts.onFresh(tile.meta);
+    }
+    if (opts.after && !tile.finished) {   // the text-free image is paid and kept; only the overlay is retried
+      try {
+        const base = tile.meta;
+        const done = await opts.after(base);
+        tile.finished = true;
+        tile.meta = done;
+        if (opts.onFresh) opts.onFresh(done);
+        if (tile.group && !tile.dead) {
+          const side = makeTile({ role: "modification", meta: base, group: tile.group });
+          tile.group.addFirst([side]);
+          side.submit();
+        }
+      } catch (e) {
+        const stale = e && (e.status === 401 || e.status === 403);
+        return tile.fail(stale ? STALE : "Зображення створено, але підпис не накладено: " + explain(e, (e && e.message) || "помилка"), stale ? "stale" : undefined);
+      }
     }
     try {
       await tile.show();
@@ -1159,7 +1221,9 @@ function generateMods(payloads) {
       const change = payload.market ? marketLabel(payload.market) : payload.change;
       const size = payload.format ? FORMAT_SIZE[payload.format] : (findMeta(payload.parent) || {}).size || "";
       const section = sectionFor(sub, change, size, "top");
-      const tile = makeTile({ role: "modification", payload, route: payload.market ? "/api/localize" : "/api/modify", group: section,
+      const { cap: capInfo, ...send } = payload;   // the caption stays on the page: the server gets only the text-free request
+      const tile = makeTile({ role: "modification", payload: send, route: payload.market ? "/api/localize" : "/api/modify", group: section,
+        after: capInfo ? (base) => capOverlay(base, payload.market, capInfo) : undefined,
         onFresh: (m) => { store.mods.unshift(m); offerToAnim(m); updateChrome(); } });
       section.addFirst([tile]);
       made.push(tile);
@@ -1200,6 +1264,345 @@ $("locsel").addEventListener("click", () => {
 });
 $("change").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.repeat) { e.preventDefault(); generateModsFromForm(); }
+});
+
+/* ---------- captions: real LinguiJS runtime + catalogs from the server ---------- */
+const CAP_STACK = '"Helvetica Neue", Arial, "Segoe UI", Roboto, "Noto Sans", "DejaVu Sans", system-ui, sans-serif';
+const CAP_STATUS = { machine: "машинний", approved: "перевірено", failed: "помилка", none: "немає" };
+const cap = { L: null, loading: null, cats: null, rows: [], removed: new Set(), failed: {}, ready: false, markets: new Map() };
+
+function ensureLingui() {
+  if (!cap.loading) {
+    cap.loading = import("/vendor/lingui-core.mjs").then((L) => {
+      L.i18n.setMessagesCompiler(L.compileMessage);
+      cap.L = L;
+      window.i18n = L.i18n;   // handy in the console: i18n.locale, i18n._("cap_…")
+      return L;
+    });
+    cap.loading.catch(() => { cap.loading = null; });
+  }
+  return cap.loading;
+}
+
+const capVars = () => {
+  const out = {};
+  for (const part of $("capvars").value.split(",")) {
+    const [k, ...v] = part.split("=");
+    const key = (k || "").trim(), val = v.join("=").trim();
+    if (/^[A-Za-z_]\w*$/.test(key) && val) out[key] = /^-?\d+(\.\d+)?$/.test(val) ? Number(val) : val;
+  }
+  return out;
+};
+function capRender(id, locale) {
+  const { i18n } = cap.L;
+  i18n.activate(locale);
+  try { return i18n._(id, capVars()); } catch (e) { return "⚠ " + e.message; }
+}
+const capMsg = (text, bad) => { $("capmsg").className = (bad ? "bad" : "mut") + " small"; $("capmsg").textContent = text || ""; };
+const capLocales = () => (cap.cats ? cap.cats.locales : []);
+const capMessages = (locale) => (cap.cats && cap.cats.catalogs[locale] ? cap.cats.catalogs[locale] : { messages: {}, status: {} });
+const capSourceIds = () => Object.keys(capMessages("en-US").messages);
+const capNewId = () => "cap_" + [...crypto.getRandomValues(new Uint8Array(4))].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+// PUT/POST helper with a JSON body for the verbs apiQuiet does not cover.
+async function capApi(method, path, payload) {
+  try {
+    return await withTimeout(method === "POST" ? 120000 : TIMEOUT.api, async (signal) => {
+      const res = await fetch(path, { method, signal, headers: { "X-Token": TOKEN, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (res.status === 401 || res.status === 403) return { ok: false, error: STALE };
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body.ok !== false) return { ok: true, data: body.data };
+      return { ok: false, error: typeof body.error === "string" && body.error ? body.error : "Помилка сервера. Спробуйте ще раз." };
+    });
+  } catch (e) {
+    return { ok: false, error: e.name === "AbortError" ? SLOW : "Немає зв'язку з програмою." };
+  }
+}
+
+function capLoadIntoLingui() {
+  for (const [locale, c] of Object.entries(cap.cats.catalogs)) cap.L.i18n.load(locale, c.messages);
+}
+
+async function capReload() {
+  const res = await apiQuiet("/api/captions");
+  if (!res.ok) { capMsg(res.error, true); return false; }
+  cap.cats = res.data;
+  capLoadIntoLingui();
+  return true;
+}
+
+function capRenderSource() {
+  const list = $("caplist");
+  list.replaceChildren();
+  for (const row of cap.rows) {
+    const area = row.area;
+    const del = h("button", { type: "button", className: "small-btn" }, "Прибрати");
+    del.setAttribute("aria-label", "Прибрати підпис " + row.id);
+    del.addEventListener("click", () => {
+      cap.rows = cap.rows.filter((r) => r !== row);
+      if (capSourceIds().includes(row.id)) cap.removed.add(row.id);
+      capRenderSource();
+      capRenderTable();
+    });
+    list.append(h("div", { className: "caprow" }, h("span", { className: "caploc" }, row.id), area, del));
+  }
+}
+
+function capSyncRows() {
+  const saved = capSourceIds();
+  const known = new Map(cap.rows.map((r) => [r.id, r]));
+  const rows = [];
+  for (const id of saved) {
+    if (cap.removed.has(id)) continue;
+    const row = known.get(id) || { id, area: capArea(id, capMessages("en-US").messages[id]) };
+    rows.push(row);
+  }
+  for (const r of cap.rows) if (!saved.includes(r.id)) rows.push(r);   // new, not saved yet
+  cap.rows = rows;
+}
+
+function capArea(id, text) {
+  const area = h("textarea", { value: text || "", maxLength: 500, placeholder: "Pairs always together" });
+  area.setAttribute("aria-label", "Підпис " + id + " (en-US)");
+  return area;
+}
+
+async function capSaveSource() {
+  const messages = {};
+  for (const r of cap.rows) { const t = r.area.value.trim(); if (t) messages[r.id] = t; }
+  const gone = [...cap.removed, ...cap.rows.filter((r) => !r.area.value.trim() && capSourceIds().includes(r.id)).map((r) => r.id)];
+  const res = await capApi("PUT", "/api/captions", { locale: "en-US", messages, delete: gone });
+  if (!res.ok) { capMsg(res.error, true); return false; }
+  cap.removed.clear();
+  cap.rows = cap.rows.filter((r) => r.area.value.trim());
+  if (!(await capReload())) return false;
+  capSyncRows();
+  capRenderAll();
+  return true;
+}
+
+async function capSaveTranslation(id, locale, text, approve) {
+  const body = { locale, messages: { [id]: text } };
+  if (approve) body.status = { [id]: "approved" };
+  const res = await capApi("PUT", "/api/captions", body);
+  if (!res.ok) { capMsg(res.error, true); await capReload(); capRenderTable(); return; }
+  delete cap.failed[locale + "|" + id];
+  capMsg("");
+  cap.cats.catalogs[locale] = res.data;
+  cap.L.i18n.load(locale, res.data.messages);
+  capRenderTable();
+  capUpdate();
+}
+
+function capRenderTable() {
+  const box = $("captable");
+  box.replaceChildren();
+  if (!cap.L || !cap.cats) return;
+  const ids = capSourceIds().filter((id) => !cap.removed.has(id));
+  for (const id of ids) {
+    const card = h("div", { className: "capcard" }, h("h4", {}, capMessages("en-US").messages[id], " ", h("span", { className: "mut small" }, id)));
+    card.append(h("div", { className: "capprev" }, "en-US: " + capRender(id, "en-US")));
+    for (const locale of capLocales()) {
+      if (locale === "en-US") continue;
+      const { messages, status } = capMessages(locale);
+      const failure = cap.failed[locale + "|" + id];
+      const st = messages[id] ? status[id] || "machine" : failure ? "failed" : "none";
+      const chip = h("span", { className: "chip " + st }, CAP_STATUS[st]);
+      const input = h("input", { type: "text", value: messages[id] || "", maxLength: 500 });
+      input.setAttribute("aria-label", "Переклад " + locale + " для " + id);
+      input.addEventListener("change", () => { if (input.value.trim()) capSaveTranslation(id, locale, input.value.trim(), false); });
+      const row = h("div", { className: "caprow" }, h("span", { className: "caploc" }, locale), chip, input);
+      if (messages[id] && st !== "approved") {
+        const ok = h("button", { type: "button", className: "small-btn" }, "Затвердити");
+        ok.setAttribute("aria-label", "Затвердити " + locale + " для " + id);
+        ok.addEventListener("click", () => capSaveTranslation(id, locale, input.value.trim() || messages[id], true));
+        row.append(ok);
+      }
+      if (messages[id]) row.append(h("div", { className: "capprev" }, "→ " + capRender(id, locale)));
+      if (failure) row.append(h("div", { className: "bad small capprev" }, failure));
+      card.append(row);
+    }
+    box.append(card);
+  }
+}
+
+function capRenderSelects() {
+  const sel = $("capsel");
+  const keep = sel.value;
+  sel.replaceChildren(...capSourceIds().map((id) => h("option", { value: id }, short(capMessages("en-US").messages[id]) + " · " + id)));
+  if (keep && capSourceIds().includes(keep)) sel.value = keep;
+  const dl = $("capdlloc");
+  if (!dl.options.length) dl.replaceChildren(...capLocales().map((l) => h("option", { value: l }, l)));
+}
+
+function capRenderMarkets() {
+  const box = $("capmk");
+  if (box.firstChild || !(CONFIG.markets || []).length) return;
+  const fs = h("fieldset", { style: "border:0;padding:0;margin:0;min-width:0" }, h("legend", { className: "small" }, "Ринки"));
+  for (const m of CONFIG.markets) {
+    const input = h("input", { type: "checkbox" });
+    input.addEventListener("change", () => updateChrome());
+    cap.markets.set(m.key, input);
+    fs.append(h("label", { className: "mkrow" }, input, m.name_uk + " · " + m.catalog_locale));
+  }
+  box.append(fs);
+}
+
+function capRenderAll() {
+  capSyncRows();
+  capRenderSource();
+  capRenderTable();
+  capRenderSelects();
+  capRenderMarkets();
+  capUpdate();
+}
+
+function capUpdate() {
+  if (!cap.ready) return;
+  const picked = [...cap.markets].filter(([, b]) => b.checked).map(([k]) => k);
+  const sources = chosen();
+  const n = sources.length * picked.length;
+  const over = n > MAX_BATCH;
+  const id = $("capsel").value;
+  const lacking = picked.filter((k) => { const m = marketOf(k); return !(m && capMessages(m.catalog_locale).messages[id]); });
+  const hint = $("caphint");
+  hint.className = (over || lacking.length ? "bad" : "mut") + " small";
+  hint.textContent = !id ? "Спершу додайте й збережіть підпис."
+    : !sources.length ? "Виберіть зображення вище." : !picked.length ? "Оберіть хоча б один ринок."
+    : lacking.length ? "Немає тексту підпису для: " + lacking.map((k) => marketOf(k).name_uk).join(", ") + ". Натисніть «Перекласти для ринків»."
+    : over ? "Забагато: максимум " + MAX_BATCH + " за раз." : costText(n);
+  $("capgo").textContent = n && !over ? "Локалізувати з підписом (" + n + ")" : "Локалізувати з підписом";
+  setBusy($("capgo"), !id || n === 0 || over || lacking.length > 0 || modLocks.startup || modLocks.key);
+}
+
+// Draws the caption on a text-free image: wrapped, auto-fitted, with a contrast outline and shadow.
+function capDraw(ctx, W, H, text, position) {
+  const maxW = W * 0.84, maxH = H * 0.3, margin = H * 0.06;
+  const wrap = (fs) => {
+    ctx.font = "700 " + fs + "px " + CAP_STACK;
+    const lines = [];
+    let line = "";
+    const push = (word) => {
+      const trial = line ? line + " " + word : word;
+      if (ctx.measureText(trial).width <= maxW) { line = trial; return; }
+      if (line) lines.push(line);
+      line = "";
+      if (ctx.measureText(word).width <= maxW) { line = word; return; }
+      for (const ch of word) {   // a single word wider than the box: break by characters
+        if (line && ctx.measureText(line + ch).width > maxW) { lines.push(line); line = ""; }
+        line += ch;
+      }
+    };
+    text.split(/\s+/).filter(Boolean).forEach(push);
+    if (line) lines.push(line);
+    return lines;
+  };
+  let fs = Math.round(H * 0.075), lines = wrap(fs);
+  while (fs > 12 && (lines.length * fs * 1.2 > maxH || lines.length > 5)) { fs -= 2; lines = wrap(fs); }
+  const block = lines.length * fs * 1.2;
+  const top = position === "top" ? margin : position === "center" ? (H - block) / 2 : H - margin - block;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = Math.max(3, fs * 0.2);
+  ctx.strokeStyle = "rgba(0,0,0,0.9)";
+  ctx.fillStyle = "#fff";
+  ctx.shadowColor = "rgba(0,0,0,0.55)";
+  ctx.shadowBlur = fs * 0.2;
+  lines.forEach((l, i) => {
+    const y = top + fs * 1.2 * (i + 0.5);
+    ctx.strokeText(l, W / 2, y);
+    ctx.fillText(l, W / 2, y);
+  });
+}
+
+// Runs inside a tile after the paid text-free image exists: draws the catalog caption and stores the PNG.
+async function capOverlay(base, market, info) {
+  await ensureLingui();
+  if (!cap.cats && !(await capReload())) throw new Error("Каталоги підписів недоступні");
+  const m = marketOf(market);
+  const locale = m && m.catalog_locale;
+  if (!locale || !capMessages(locale).messages[info.id]) throw new Error("немає тексту підпису для " + locale);
+  const text = capRender(info.id, locale);
+  const blob = await getBlob("/api/g/" + base.id + ".png");
+  const bmp = await createImageBitmap(blob);
+  const canvas = h("canvas", { width: bmp.width, height: bmp.height });
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(bmp, 0, 0);
+  bmp.close();
+  capDraw(ctx, canvas.width, canvas.height, text, info.position);
+  const png = await new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("canvas"))), "image/png"));
+  const url = "/api/gallery/overlay?parent=" + base.id + "&market=" + encodeURIComponent(market) + "&caption=" + info.id;
+  const res = await withTimeout(TIMEOUT.api, (signal) => fetch(url, { method: "POST", signal, headers: { "X-Token": TOKEN, "Content-Type": "image/png" }, body: png }));
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body.ok === false) throw Object.assign(new Error(body.error || "помилка сервера"), { status: res.status });
+  return body.data;
+}
+
+async function capOpen() {
+  if (cap.ready) return;
+  capMsg("Завантажую LinguiJS…");
+  try { await ensureLingui(); } catch (e) { capMsg("Не вдалося завантажити LinguiJS.", true); return; }
+  if (!(await capReload())) return;
+  cap.ready = true;
+  capMsg("");
+  capRenderAll();
+  if (!cap.rows.length) { cap.rows.push({ id: capNewId(), area: capArea() }); capRenderSource(); }
+}
+$("capbox").addEventListener("toggle", () => { if ($("capbox").open) capOpen(); });
+$("capadd").addEventListener("click", () => {
+  if (!cap.ready) return;
+  const row = { id: capNewId(), area: capArea() };
+  cap.rows.push(row);
+  capRenderSource();
+  row.area.focus();
+});
+$("capsave").addEventListener("click", async () => { if (cap.ready && (await capSaveSource())) capMsg("Збережено."); });
+$("capvars").addEventListener("change", () => capRenderTable());
+$("captr").addEventListener("click", async () => {
+  if (!cap.ready || isBusy($("captr"))) return;
+  setBusy($("captr"), true);
+  try {
+    if (!(await capSaveSource())) return;
+    const ids = capSourceIds();
+    if (!ids.length) return capMsg("Спершу введіть підпис.", true);
+    capMsg("Перекладаю…");
+    const res = await capApi("POST", "/api/captions/translate", { ids, locales: capLocales().filter((l) => l !== "en-US") });
+    if (!res.ok) return capMsg(res.error, true);
+    const tally = { machine: 0, cached: 0, approved: 0, failed: 0 };
+    cap.failed = {};
+    for (const [locale, items] of Object.entries(res.data.results)) {
+      for (const [id, r] of Object.entries(items)) {
+        tally[r.status]++;
+        if (r.status === "failed") cap.failed[locale + "|" + id] = r.error;
+      }
+    }
+    await capReload();
+    capRenderAll();
+    capMsg("Перекладено: " + tally.machine + ", з кешу: " + tally.cached + ", затверджені не чіпали: " + tally.approved
+      + (tally.failed ? ", відхилено: " + tally.failed : "") + ". Машинний переклад вичитайте й затвердіть.", tally.failed > 0);
+  } finally { setBusy($("captr"), false); }
+});
+$("capdl").addEventListener("click", async () => {
+  const locale = $("capdlloc").value;
+  if (!locale) return;
+  try {
+    const res = await fetch("/api/captions.po?locale=" + encodeURIComponent(locale), { headers: { "X-Token": TOKEN } });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    save(new Blob([await res.text()], { type: "text/plain" }), locale + ".po");
+  } catch (e) { capMsg("Не вдалося завантажити .po.", true); }
+});
+segmented("cappos", "cappos", [["top", "Угорі"], ["center", "По центру"], ["bottom", "Знизу"]]);
+$("capsel").addEventListener("change", () => updateChrome());
+$("capgo").addEventListener("click", () => {
+  if (isBusy($("capgo"))) return;
+  const picked = [...cap.markets].filter(([, b]) => b.checked).map(([k]) => k);
+  const payloads = [];
+  for (const t of chosen()) for (const market of picked) {
+    payloads.push({ parent: t.meta.id, market, no_text: true, cap: { id: $("capsel").value, position: state.cappos } });
+  }
+  if (!startGuard(payloads.length)) { $("caphint").textContent = "Зачекайте секунду й спробуйте ще раз."; return; }
+  generateMods(payloads);
 });
 
 /* ---------- selection bar (works on the active tab) ---------- */

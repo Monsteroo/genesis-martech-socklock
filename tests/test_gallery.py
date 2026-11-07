@@ -49,6 +49,17 @@ class GalleryTests(unittest.TestCase):
         self.assertIsInstance(meta["created"], float)
         self.assertEqual(list(self.root.glob("*.part")), [])
 
+    def test_caption_and_locale_roundtrip_and_listing(self):
+        gid = gallery.new_id()
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.g.path(gid).write_bytes(b"png")
+        self.g.add(gid, "p", "1024x1536", parent="g00000001", kind="modification", root="g00000001",
+                   market="de", caption="cap_0123abcd", locale="de")
+        item = self.g.find()[0]
+        self.assertEqual((item["caption"], item["locale"]), ("cap_0123abcd", "de"))
+        plain = self.put("orig")
+        self.assertEqual([(i["caption"], i["locale"]) for i in self.g.find(kind="original")], [(None, None)])
+
     def test_kind_and_change_roundtrip_and_defaults(self):
         a = self.put("orig")
         b = self.put("mod", parent=a, kind="modification", change="evening light")
@@ -154,7 +165,7 @@ class GalleryTests(unittest.TestCase):
         meta = json.loads(self.g.meta_path(gid).read_text(encoding="utf-8"))
         meta["secret"] = "x"
         self.g.meta_path(gid).write_text(json.dumps(meta), encoding="utf-8")
-        self.assertEqual(sorted(self.g.find()[0]), ["change", "created", "id", "kind", "market", "parent", "prompt", "root", "size", "style"])
+        self.assertEqual(sorted(self.g.find()[0]), ["caption", "change", "created", "id", "kind", "locale", "market", "parent", "prompt", "root", "size", "style"])
 
     def test_find_order_is_deterministic_on_equal_created(self):
         ids = [self.put(str(i), created=5.0) for i in range(5)]

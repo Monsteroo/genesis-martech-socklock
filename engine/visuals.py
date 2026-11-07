@@ -170,6 +170,15 @@ def localize_change(market_key, source_text=None):
     return text
 
 
+def localize_change_no_text(market_key):
+    """Like localize_change, but the result must carry no text at all: the caption is overlaid later from a catalog."""
+    m = MARKETS[market_key]
+    return (f"Adapt the image for the {m['name']} market: adapt the setting, props, clothing and interior to feel "
+            f"typical for {m['name']}; keep the same subject, composition and format. The image must contain no text: "
+            f"remove every caption, letter, number, sign and label, leave clean empty space where text was, "
+            f"no logos or watermarks")
+
+
 def _text_rule(*sources):
     """Text on the image is allowed only when the user asks for a caption."""
     joined = " ".join(s for s in sources if s)

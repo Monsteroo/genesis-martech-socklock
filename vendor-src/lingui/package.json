@@ -1,0 +1,16 @@
+{
+  "name": "creative-engine-vendor-lingui",
+  "private": true,
+  "description": "One-time bundle step: turns the pinned official @lingui/core + @lingui/message-utils into one browser-ready ES module (web/vendor/lingui-core.mjs). Not used at runtime.",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild entry.mjs --bundle --format=esm --minify --legal-comments=none --target=es2020 --define:process.env.NODE_ENV='\"production\"' --outfile=../../web/vendor/lingui-core.mjs"
+  },
+  "dependencies": {
+    "@lingui/core": "6.10.1",
+    "@lingui/message-utils": "6.10.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

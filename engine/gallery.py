@@ -13,7 +13,7 @@ from engine.library import LibraryError
 _ID = re.compile(r"g[0-9a-f]{8}")
 MAX_ZIP = 50
 MAX_DELETE = 200
-KEYS = ("id", "prompt", "size", "parent", "root", "market", "style", "created")
+KEYS = ("id", "prompt", "size", "parent", "root", "market", "style", "created", "caption", "locale")
 KINDS = ("original", "modification")
 MAX_CHANGE = 300
 
@@ -48,14 +48,15 @@ class Gallery:
                 return gid
         raise LibraryError("Не вдалося створити id зображення.")
 
-    def add(self, gid, prompt, size, parent=None, style=None, created=None, kind="original", change=None, root=None, market=None):
+    def add(self, gid, prompt, size, parent=None, style=None, created=None, kind="original", change=None, root=None, market=None,
+            caption=None, locale=None):
         if kind not in KINDS:
             raise LibraryError("Невідомий вид зображення.")
         if change is not None and not (isinstance(change, str) and len(change) <= MAX_CHANGE):
             raise LibraryError("Некоректний опис зміни.")
         meta = {"id": gid, "prompt": prompt, "size": size, "parent": parent, "style": style,
                 "created": time.time() if created is None else created, "kind": kind, "change": change,
-                "root": root, "market": market}
+                "root": root, "market": market, "caption": caption, "locale": locale}
         path = self.meta_path(gid)
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".part")
@@ -106,7 +107,7 @@ class Gallery:
             item["prompt"] = prompt if isinstance(prompt, str) else ""
             if not isinstance(item["size"], str):
                 continue
-            for k in ("parent", "root", "market", "style"):
+            for k in ("parent", "root", "market", "style", "caption", "locale"):
                 if not isinstance(item[k], str):
                     item[k] = None
             item["created"] = created

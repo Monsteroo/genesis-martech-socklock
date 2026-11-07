@@ -5,3 +5,6 @@ library/originals.json
 .DS_Store
 library/images/
 .env
+
+vendor-src/lingui/node_modules/
+library/captions/
