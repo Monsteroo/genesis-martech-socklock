@@ -13,7 +13,7 @@ from engine.library import LibraryError
 _ID = re.compile(r"g[0-9a-f]{8}")
 MAX_ZIP = 50
 MAX_DELETE = 200
-KEYS = ("id", "prompt", "size", "parent", "root", "market", "style", "created", "caption", "locale")
+KEYS = ("id", "prompt", "size", "parent", "root", "market", "style", "created", "caption", "locale", "trashed")
 KINDS = ("original", "modification")
 MAX_CHANGE = 300
 
@@ -57,6 +57,10 @@ class Gallery:
         meta = {"id": gid, "prompt": prompt, "size": size, "parent": parent, "style": style,
                 "created": time.time() if created is None else created, "kind": kind, "change": change,
                 "root": root, "market": market, "caption": caption, "locale": locale}
+        self._write_meta(gid, meta)
+        return meta
+
+    def _write_meta(self, gid, meta):
         path = self.meta_path(gid)
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".part")
@@ -67,7 +71,36 @@ class Gallery:
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise
-        return meta
+
+    def set_trashed(self, ids, on):
+        """Soft delete: sets or clears `trashed` (ISO time) in the metadata. Idempotent; unknown ids are ignored.
+        Returns how many existing items are now in the requested state."""
+        if not isinstance(ids, list):
+            raise LibraryError("Очікується список id.")
+        for gid in ids:
+            check(gid)
+        ids = list(dict.fromkeys(ids))
+        if len(ids) > MAX_DELETE:
+            raise LibraryError(f"За раз можна обробити не більше {MAX_DELETE} зображень.")
+        done = 0
+        for gid in ids:
+            if not self.path(gid).is_file():
+                continue
+            try:
+                meta = json.loads(self.meta_path(gid).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if not isinstance(meta, dict) or meta.get("id") != gid:
+                continue
+            was = isinstance(meta.get("trashed"), str)
+            if on and not was:
+                meta["trashed"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+                self._write_meta(gid, meta)
+            elif not on and "trashed" in meta:
+                del meta["trashed"]
+                self._write_meta(gid, meta)
+            done += 1
+        return done
 
     def get(self, gid):
         path = self.meta_path(gid)
@@ -76,7 +109,7 @@ class Gallery:
         except (OSError, ValueError):
             raise LibraryError("Зображення не знайдено.") from None
 
-    def find(self, limit=200, kind=None, parent=None, root=None):
+    def find(self, limit=200, kind=None, parent=None, root=None, trashed=False):
         if kind is not None and kind not in KINDS:
             raise LibraryError("Невідомий вид зображення.")
         if parent is not None:
@@ -107,7 +140,7 @@ class Gallery:
             item["prompt"] = prompt if isinstance(prompt, str) else ""
             if not isinstance(item["size"], str):
                 continue
-            for k in ("parent", "root", "market", "style", "caption", "locale"):
+            for k in ("parent", "root", "market", "style", "caption", "locale", "trashed"):
                 if not isinstance(item[k], str):
                     item[k] = None
             item["created"] = created
@@ -122,6 +155,8 @@ class Gallery:
                 item["root"] = item["parent"]  # older records had a single level
             change = meta.get("change")
             item["change"] = change if isinstance(change, str) and len(change) <= MAX_CHANGE else None
+            if (item["trashed"] is not None) != bool(trashed):
+                continue
             if (kind is not None and item["kind"] != kind) or (parent is not None and item["parent"] != parent) \
                     or (root is not None and item["root"] != root):
                 continue

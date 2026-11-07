@@ -115,6 +115,12 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
 .capbody .go2{border:0;border-radius:8px;background:var(--acc);color:var(--acc-fg);font:inherit;font-size:14px;font-weight:600;padding:8px 12px;cursor:pointer}
 .capbody .small-btn{border:1px solid var(--edge);background:transparent;color:var(--fg);border-radius:8px;padding:5px 10px;font:inherit;font-size:13px;cursor:pointer}
 @media (max-width:480px){.capprev{padding-left:0}}
+.undo{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(76px + env(safe-area-inset-bottom));z-index:5;max-width:calc(100% - 32px);background:var(--fg);color:var(--bg);border-radius:10px;padding:8px 14px;font-size:14px}
+.undo button{background:none;border:0;color:inherit;font:inherit;text-decoration:underline;cursor:pointer;padding:0 0 0 4px}
+.trashbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.trashbar button{border:1px solid var(--edge);background:var(--card);color:var(--fg);border-radius:10px;padding:8px 14px;font:inherit;font-size:14px;cursor:pointer}
+.trashbar button.armed{background:var(--bad);color:var(--bg);border-color:var(--bad)}
+.tile .origin{font-size:12px;color:var(--mut)}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -127,6 +133,7 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
     <button type="button" role="tab" id="tab-originals" aria-controls="p-originals">Оригінали<span class="count" id="c-originals">0</span><span class="flag" id="f-originals" hidden></span></button>
     <button type="button" role="tab" id="tab-modifications" aria-controls="p-modifications">Модифікації<span class="count" id="c-modifications">0</span><span class="flag" id="f-modifications" hidden></span></button>
     <button type="button" role="tab" id="tab-animation" aria-controls="p-animation">Анімація<span class="beta">у розробці</span></button>
+    <button type="button" role="tab" id="tab-trash" aria-controls="p-trash">Кошик<span class="count" id="c-trash">0</span><span class="flag" id="f-trash" hidden></span></button>
   </div>
 
   <section id="p-originals" role="tabpanel" aria-labelledby="tab-originals">
@@ -237,12 +244,27 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
     <div class="row"><button id="ago" class="go" type="button" aria-disabled="true" aria-describedby="ahint">Створити анімацію</button><span id="ahint" class="mut">У розробці — скоро буде</span></div>
     <div class="mut">Тут з'являться анімації вибраних зображень.</div>
   </section>
+
+  <section id="p-trash" role="tabpanel" aria-labelledby="tab-trash" hidden>
+    <div class="mut small">Тут лежать зображення, які ви прибрали з роботи. Їх можна повернути; «Видалити назавжди» не скасувати.</div>
+    <div class="links"><button id="tpickall" type="button">Вибрати всі</button></div>
+    <div class="trashbar">
+      <button id="trestore" type="button" aria-disabled="true">Відновити</button>
+      <button id="tdel" type="button" aria-disabled="true">Видалити назавжди</button>
+      <button id="tclear" type="button" aria-disabled="true">Очистити кошик</button>
+    </div>
+    <div id="tmsg" class="mut" role="status" aria-live="polite"></div>
+    <div id="tempty" class="mut" hidden>Кошик порожній. Тут лежать зображення, які ви прибрали з роботи; їх можна повернути.</div>
+    <section id="tgrid" class="grid" aria-label="Кошик"></section>
+    <button id="trmore" class="more" type="button" hidden>Показати ще</button>
+  </section>
 </main>
+<div id="undo" class="undo" role="status" aria-live="polite" hidden></div>
 
 <div id="bar" class="bar" hidden>
   <span>Вибрано: <b id="n">0</b></span>
   <button id="dl" class="main" type="button">Завантажити</button>
-  <button id="del" type="button">Видалити</button>
+  <button id="del" type="button">У кошик</button>
   <button id="clear" type="button">Зняти вибір</button>
   <div id="barmsg" role="status" aria-live="polite"></div>
 </div>
@@ -259,7 +281,7 @@ const SECTIONS_PAGE = 5; // sections per original on first open
 const SUBS_PAGE = 8;    // sub-tabs shown at first
 const MAX_BATCH = 24;   // most images one click may start
 const CHIPS = ["інше світло", "інший ракурс", "інший фон", "інші кольори", "ближче", "ширше", "додай підпис «Пара завжди разом»", "замінити підпис на «…»", "без підпису", "для зими", "для літа", "інша модель", "в руці"];
-const TABS = { originals: "Оригінали", modifications: "Модифікації", animation: "Анімація" };
+const TABS = { originals: "Оригінали", modifications: "Модифікації", animation: "Анімація", trash: "Кошик" };
 const ANIM_CHIPS = ["повільний наїзд", "відʼїзд", "паралакс", "легкий рух тканини", "плавний поворот", "мерехтіння світла"];
 
 const $ = (id) => document.getElementById(id);
@@ -549,7 +571,8 @@ function makePanel(opts) {
 }
 
 /* ---------- data and tabs ---------- */
-const store = { originals: [], mods: [] };   // metadata, newest first: the source of the counters
+const store = { originals: [], mods: [], trash: [] };
+const trashedIds = new Set();   // ids in the trash: their children show «в кошику»   // metadata, newest first: the source of the counters
 const originalIds = new Set();
 let ready = false;    // the originals list loaded
 let loaded = false;   // start() finished
@@ -561,7 +584,7 @@ const isGone = (id) => ready && !originalIds.has(id);
 const isMod = (meta) => meta.kind === "modification";
 const rootOf = (meta) => meta.root || meta.parent;   // the top original of a modification
 const findMeta = (id) => store.originals.find((m) => m.id === id) || store.mods.find((m) => m.id === id);
-const TAB_OF = { original: "originals", modification: "modifications" };
+const TAB_OF = { original: "originals", modification: "modifications", trashed: "trash" };
 const chosen = () => stripMods.chosen();
 const barPicked = () => [...tiles].filter((t) => t.tab === active && t.picked());
 
@@ -579,7 +602,7 @@ function updateChrome() {
   const n = barPicked().length;
   $("bar").hidden = n === 0;
   $("n").textContent = n;
-  const counts = { originals: store.originals.length, modifications: store.mods.length };
+  const counts = { originals: store.originals.length, modifications: store.mods.length, trash: store.trash.length };
   for (const name of Object.keys(TABS)) {
     if (name === "animation") continue;   // a placeholder: no counters
     $("c-" + name).textContent = counts[name];
@@ -601,9 +624,11 @@ function updateChrome() {
   $("asmore").hidden = stripAnim.rest.length === 0;
   $("anoorig").hidden = !ready || store.originals.length > 0;
   $("apickall").textContent = stripAnim.chosen().length ? "Зняти" : "Вибрати всі";
+  $("del").hidden = active === "trash";
   syncSubs();
   renderSubTabs();
   updateLabels();
+  updateTrashChrome();
   for (const p of panels) { if (p.el.isConnected) p.update(); else panels.delete(p); }
 }
 
@@ -632,6 +657,7 @@ function showTab(name, pickId, focus) {
   if (changed) clearPicks();
   if (name === "modifications") buildMods();
   if (name === "animation") buildAnim();
+  if (name === "trash") buildTrash();
   if (pickId) {
     stripMods.pick(pickId);
     $("change").focus();
@@ -654,7 +680,7 @@ for (const id of Object.keys(TABS)) {
 }
 $("toorig").addEventListener("click", () => showTab("originals", undefined, true));
 function parseHash() {
-  const m = /^#(originals|modifications|animation)(?:\/(g[0-9a-f]{8}))?$/.exec(location.hash);
+  const m = /^#(originals|modifications|animation|trash)(?:\/(g[0-9a-f]{8}))?$/.exec(location.hash);
   return { tab: m ? m[1] : "originals", sub: (m && m[2]) || null };
 }
 addEventListener("hashchange", () => {
@@ -742,6 +768,7 @@ function makeTile(opts) {
     extra.addEventListener("click", () => {
       if (role === "original") return showTab("modifications", tile.meta.id);
       const count = Number(num.value);
+      if (trashedIds.has(tile.meta.parent)) { $("mmsg").textContent = "Батьківське зображення в кошику. Відновіть його, щоб створювати схожі."; return; }
       if (!startGuard(count)) return;
       const { parent, change, size } = tile.meta;
       // Different variation numbers on every click, counting jobs still running. The same format as this tile.
@@ -763,7 +790,10 @@ function makeTile(opts) {
       el.append(panel.el);
       panel.el.querySelector("input").focus();
     });
-    return h("div", { className: "acts" }, ...(change ? [change] : []), role === "original" ? extra : again, loc, dl);
+    const bin = h("button", { type: "button", className: "bin" }, "У кошик");
+    bin.setAttribute("aria-label", "Перемістити в кошик: " + (short((isMod(tile.meta) && tile.meta.change) || tile.meta.prompt) || "зображення"));
+    bin.addEventListener("click", () => moveToTrash([tile]));
+    return h("div", { className: "acts" }, ...(change ? [change] : []), role === "original" ? extra : again, loc, dl, bin);
   }
 
   tile.show = async () => {
@@ -790,7 +820,8 @@ function makeTile(opts) {
     tile.state = "ok";
     body.className = "body";
     body.replaceChildren(open);
-    if (role !== "chooser" && !el.querySelector(".acts")) {
+    if (role === "trashed" && !el.querySelector(".origin")) el.append(h("div", { className: "origin clip" }, originLabel(meta)));
+    if (role !== "chooser" && role !== "trashed" && !el.querySelector(".acts")) {
       if (role === "modification" && meta.change) el.append(h("div", { className: "mut small clip" }, meta.change));
       if (role === "modification" && meta.market && (marketOf(meta.market) || {}).status === "planned") el.append(h("div", { className: "mut small" }, "планується"));
       if (role === "modification" && meta.parent !== rootOf(meta)) {   // made from another modification
@@ -998,7 +1029,11 @@ function makeThumb(id) {
   const release_ = () => { if (thumb.lease) release(thumb.lease); thumb.lease = null; };
   const placeholder = (text, title) => { el.title = title; el.replaceChildren(text); };
   thumb.destroy = () => { thumb.dead = true; release_(); };
-  thumb.gone = () => { thumb.destroy(); placeholder("видалено", "Оригінал видалено"); };
+  thumb.gone = () => {
+    thumb.destroy();
+    if (trashedIds.has(id)) placeholder("в кошику", "Оригінал у кошику: його можна відновити");
+    else placeholder("видалено", "Оригінал видалено");
+  };
   if (isGone(id)) { thumb.gone(); return thumb; }   // no request for an image we know is gone
   enqueueGallery(async () => {
     if (thumb.dead) return;
@@ -1040,6 +1075,13 @@ function makeSection(sub, change, size) {
   el.setAttribute("aria-label", title);
   const section = { el, rest: [], members: new Set() };
 
+  // Keeps the newest-first order when a restored image comes back.
+  section.insert = (t) => {
+    section.members.add(t);
+    const byEl = new Map([...section.members].map((m) => [m.el, m]));
+    const later = [...grid.children].find((c) => { const m = byEl.get(c); return m && m !== t && m.meta && m.meta.created < t.meta.created; });
+    grid.insertBefore(t.el, later || null);
+  };
   section.addFirst = (list) => { list.forEach((t) => section.members.add(t)); grid.prepend(...list.map((t) => t.el)); };
 
   section.page = () => {
@@ -1204,6 +1246,10 @@ function buildMods() {
 
 /* ---------- modifications: start ---------- */
 function generateMods(payloads) {
+  const usable = payloads.filter((p) => !trashedIds.has(p.parent));
+  if (usable.length < payloads.length) $("mmsg").textContent = "Частину пропущено: зображення в кошику. Відновіть його.";
+  payloads = usable;
+  if (!payloads.length) return;
   // Every source (an original or a modification) lands in the sub-tab of its top original.
   const topOf = (id) => { const m = findMeta(id); return m && isMod(m) ? rootOf(m) : id; };
   const byParent = new Map();
@@ -1643,13 +1689,208 @@ function forget(ids) {
 
 guarded($("del"), async () => {
   barNote();
-  const picked = barPicked();
-  if (!confirm("Видалити вибране (" + picked.length + ") назавжди?")) return;
-  const ids = picked.map((t) => t.meta.id);
-  const res = await apiQuiet("/api/gallery/delete", { ids });
+  await moveToTrash(barPicked());
+});
+
+/* ---------- trash: soft delete with undo, and the «Кошик» tab ---------- */
+const originLabel = (m) => (!isMod(m) ? "Оригінал" : m.market ? marketLabel(m.market) : "Модифікація: " + (m.change || "варіації"));
+const byCreatedDesc = (a, b) => b.created - a.created;
+function insertSorted(list, meta) {
+  const at = list.findIndex((m) => m.created < meta.created);
+  list.splice(at < 0 ? list.length : at, 0, meta);
+}
+let trashBuilt = false;
+let trashRest = [];
+const trashTiles = new Map();   // image id -> tile
+let undoTimer = null;
+
+function showUndo(metas) {
+  const box = $("undo");
+  clearTimeout(undoTimer);
+  const back = h("button", { type: "button" }, "Відновити");
+  back.addEventListener("click", () => { hideUndo(); restoreMetas(metas); });
+  box.replaceChildren("Переміщено в кошик" + (metas.length > 1 ? " (" + metas.length + ")" : "") + " · ", back);
+  box.hidden = false;
+  undoTimer = setTimeout(hideUndo, 8000);
+}
+function hideUndo() { clearTimeout(undoTimer); $("undo").hidden = true; $("undo").replaceChildren(); }
+
+function syncSubTrash(id) {
+  const sub = subs.get(id);
+  if (!sub) return;
+  const line = sub.panel.querySelector(".origline");
+  if (line) line.textContent = "Оригінал: " + sub.prompt + (trashedIds.has(id) ? " (в кошику)" : "");
+}
+
+function addTrashTile(meta, front) {
+  if (trashTiles.has(meta.id)) return;
+  const t = makeTile({ role: "trashed", meta, onRemove: () => { if (trashTiles.get(meta.id) === t) trashTiles.delete(meta.id); } });
+  trashTiles.set(meta.id, t);
+  if (front) $("tgrid").prepend(t.el); else $("tgrid").append(t.el);
+  t.submit();
+}
+
+async function moveToTrash(list) {
+  const picked = list.filter((t) => t.meta);
+  if (!picked.length) return;
+  const metas = picked.map((t) => t.meta);
+  const res = await apiQuiet("/api/gallery/trash", { ids: metas.map((m) => m.id) });
   if (!res.ok) return barNote(res.error);
+  const stamp = new Date().toISOString();
+  for (const m of metas) { m.trashed = stamp; trashedIds.add(m.id); store.trash.unshift(m); }
+  forget(metas.map((m) => m.id));
   picked.forEach((t) => t.remove());
-  forget(ids);
+  for (const m of metas) { if (!isMod(m)) syncSubTrash(m.id); if (trashBuilt) addTrashTile(m, true); }
+  showUndo(metas);
+  updateChrome();
+}
+
+// Puts restored images back into their tab, sub-tab and section without a reload.
+function restoreLocal(metas) {
+  for (const meta of metas) {
+    trashedIds.delete(meta.id);
+    store.trash = store.trash.filter((m) => m.id !== meta.id);
+    trashRest = trashRest.filter((m) => m.id !== meta.id);
+    delete meta.trashed;
+    const tt = trashTiles.get(meta.id);
+    if (tt) tt.remove();
+  }
+  for (const meta of metas) {
+    if (isMod(meta)) {
+      insertSorted(store.mods, meta);
+      offerToAnim(meta);
+      placeMod(meta);
+    } else {
+      insertSorted(store.originals, meta);
+      originalIds.add(meta.id);
+      placeOriginal(meta);
+      if (modsBuilt) stripMods.add(meta, true); else insertSorted(stripMods.rest, meta);
+      offerToAnim(meta);
+      const sub = subs.get(meta.id);
+      if (sub) {
+        sub.panel.classList.remove("gone");
+        if (sub.thumb) { sub.thumb.destroy(); sub.thumb.el.remove(); sub.thumb = null; }   // renderSubTabs loads a fresh one
+        syncSubTrash(meta.id);
+      }
+    }
+  }
+  updateChrome();
+}
+
+function placeOriginal(meta) {
+  const grid = $("grid");
+  const byEl = new Map([...tiles].map((t) => [t.el, t]));
+  const later = [...grid.children].find((c) => { const t = byEl.get(c); return t && t.meta && t.meta.created < meta.created; });
+  if (!later && origRest.length) { insertSorted(origRest, meta); return; }
+  const tile = makeTile({ role: "original", meta });
+  grid.insertBefore(tile.el, later || null);
+  tile.submit();
+}
+
+function placeMod(meta) {
+  if (!modsBuilt) return;   // buildMods reads the store
+  const top = rootOf(meta);
+  let sub = subs.get(top);
+  if (!sub) {
+    const orig = store.originals.find((m) => m.id === top);
+    makeSub(top, (orig && orig.prompt) || meta.prompt);
+    subOrder.push(top);
+    return;
+  }
+  if (!sub.built) return;   // buildSub reads the store
+  const key = sectionKey(meta.change, meta.size);
+  if (sub.pending.has(key)) { insertSorted(sub.pending.get(key), meta); return; }
+  const section = sectionFor(sub, meta.change, meta.size, sub.sections.has(key) ? "keep" : "top");
+  const tile = makeTile({ role: "modification", meta, group: section });
+  section.insert(tile);
+  tile.submit();
+}
+
+async function restoreMetas(metas) {
+  const res = await apiQuiet("/api/gallery/restore", { ids: metas.map((m) => m.id) });
+  if (!res.ok) { $("tmsg").textContent = res.error; return barNote(res.error); }
+  restoreLocal(metas);
+}
+
+function buildTrash() {
+  if (trashBuilt || !loaded) return;
+  trashBuilt = true;
+  trashRest = store.trash.slice();
+  showMoreTrash();
+}
+function showMoreTrash() {
+  trashRest.splice(0, PAGE).forEach((m) => addTrashTile(m, false));
+  updateChrome();
+}
+$("trmore").addEventListener("click", showMoreTrash);
+
+function updateTrashChrome() {
+  const picked = barPicked().length;
+  const total = store.trash.length;
+  $("tempty").hidden = !loaded || total > 0;
+  $("trmore").hidden = trashRest.length === 0;
+  $("tpickall").hidden = total === 0;
+  $("tpickall").textContent = picked ? "Зняти" : "Вибрати всі";
+  setBusy($("trestore"), picked === 0);
+  setBusy($("tdel"), picked === 0);
+  setBusy($("tclear"), total === 0);
+  for (const btn of [$("tdel"), $("tclear")]) {
+    if (btn.classList.contains("armed") && Number(btn.dataset.n) !== (btn === $("tdel") ? picked : total)) btn.disarm();
+  }
+}
+
+// Two clicks: the first one turns the button into a question, the second one does it. Disarms itself after 6 s.
+function twoClick(btn, label, action) {
+  const base = btn.textContent;
+  let timer = null;
+  btn.disarm = () => { clearTimeout(timer); timer = null; btn.textContent = base; btn.classList.remove("armed"); };
+  btn.addEventListener("click", async () => {
+    if (isBusy(btn)) return;
+    if (!timer) {
+      const { n, text } = label();
+      btn.dataset.n = n;
+      btn.textContent = text;
+      btn.classList.add("armed");
+      $("tmsg").textContent = text;
+      timer = setTimeout(btn.disarm, 6000);
+      return;
+    }
+    btn.disarm();
+    $("tmsg").textContent = "";
+    setBusy(btn, true);
+    try { await action(); } finally { setBusy(btn, false); updateChrome(); }
+  });
+}
+
+async function deleteForever(metas) {
+  const ids = metas.map((m) => m.id);
+  for (let i = 0; i < ids.length; i += 200) {
+    const res = await apiQuiet("/api/gallery/delete", { ids: ids.slice(i, i + 200) });
+    if (!res.ok) { $("tmsg").textContent = res.error; break; }
+    const gone = new Set(ids.slice(i, i + 200));
+    for (const id of gone) {
+      trashedIds.delete(id);
+      const tt = trashTiles.get(id);
+      if (tt) tt.remove();
+      const sub = subs.get(id);
+      if (sub && sub.thumb) sub.thumb.gone();
+      syncSubTrash(id);
+    }
+    store.trash = store.trash.filter((m) => !gone.has(m.id));
+    trashRest = trashRest.filter((m) => !gone.has(m.id));
+  }
+}
+
+const trashPicked = () => barPicked().map((t) => t.meta);
+$("trestore").addEventListener("click", () => { if (!isBusy($("trestore"))) restoreMetas(trashPicked()); });
+twoClick($("tdel"), () => { const n = trashPicked().length; return { n, text: "Видалити назавжди " + n + " " + images(n) + "? Це не можна скасувати." }; },
+  () => deleteForever(trashPicked()));
+twoClick($("tclear"), () => { const n = store.trash.length; return { n, text: "Очистити кошик (" + n + " " + images(n) + ")? Це не можна скасувати." }; },
+  () => deleteForever(store.trash.slice()));
+$("tpickall").addEventListener("click", () => {
+  const all = [...trashTiles.values()];
+  const any = all.some((t) => t.picked());
+  all.forEach((t) => t.setPicked(!any));
   updateChrome();
 });
 
@@ -1671,9 +1912,9 @@ async function start() {
   const first = parseHash();
   if (first.tab === "modifications") wantedSub = first.sub;
   showTab(first.tab);
-  const [config, visuals, originals, mods] = await Promise.all([
+  const [config, visuals, originals, mods, trashed] = await Promise.all([
     apiQuiet("/api/config"), apiQuiet("/api/visuals"),
-    apiQuiet("/api/gallery?kind=original"), apiQuiet("/api/gallery?kind=modification")]);
+    apiQuiet("/api/gallery?kind=original"), apiQuiet("/api/gallery?kind=modification"), apiQuiet("/api/gallery?trashed=1")]);
   if (config.ok && config.data && typeof config.data === "object") CONFIG = Object.assign(CONFIG, config.data);
   if (visuals.ok && visuals.data && visuals.data.available === false) showKeyBanner(visuals.data);
 
@@ -1694,7 +1935,10 @@ async function start() {
   const m = listOf(mods);
   if (m) store.mods = m.slice();
   else $("mnote").textContent = mods.stale ? STALE : "Не вдалося завантажити модифікації. Оновіть сторінку.";
+  const tr = listOf(trashed);
+  if (tr) { store.trash = tr.slice(); tr.forEach((m) => trashedIds.add(m.id)); }
   loaded = true;
+  if (active === "trash") buildTrash();
   if (active === "modifications") buildMods();
   if (active === "animation") buildAnim();
   lockGen("startup", false);

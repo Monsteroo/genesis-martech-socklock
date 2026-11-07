@@ -733,5 +733,56 @@ class CaptionsWebTests(HttpMixin, unittest.TestCase):
         self.assertNotIn("http", csp)
 
 
+class TrashWebTests(HttpMixin, unittest.TestCase):
+    def setUp(self):
+        self.engine = Engine(make_root(), FakeLLM(), images=FakeImages())
+        self.server = make_server(self.engine, port=0, image_workers=2)
+        self.port = self.server.server_port
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.auth = {"X-Token": self.server.token}
+        self.o = self.engine.quick_image("Socks")["id"]
+        self.m = self.engine.modify_image(self.o, "x", 0)["id"]
+
+    def call(self, path, body, headers="auth", host=None, method="POST"):
+        status, text = self.request(method, path, body, self.auth if headers == "auth" else headers, host)
+        return status, json.loads(text)
+
+    def listed(self, query):
+        _, text = self.request("GET", "/api/gallery" + query, None, self.auth)
+        return {i["id"] for i in json.loads(text)["data"]["items"]}
+
+    def test_trash_and_restore_over_http(self):
+        self.assertEqual(self.call("/api/gallery/trash", {"ids": [self.o, "g00000000", self.o]})[1]["data"], {"trashed": 1})
+        self.assertEqual(self.listed("?kind=original"), set())
+        self.assertEqual(self.listed(""), {self.m})
+        self.assertEqual(self.listed("?trashed=1"), {self.o})
+        self.assertEqual(self.call("/api/gallery/trash", {"ids": [self.o]})[1]["data"], {"trashed": 1})   # idempotent
+        self.assertEqual(self.call("/api/gallery/restore", {"ids": [self.o]})[1]["data"], {"restored": 1})
+        self.assertEqual(self.listed("?kind=original"), {self.o})
+        self.assertEqual(self.listed("?trashed=1"), set())
+
+    def test_guards_and_errors(self):
+        for path in ("/api/gallery/trash", "/api/gallery/restore"):
+            self.assertEqual(self.call(path, {"ids": [self.o]}, headers={})[0], 403)
+            self.assertEqual(self.call(path, {"ids": [self.o]}, host="evil.example")[0], 403)
+            for body in ({}, {"ids": 5}, {"ids": ["../x"]}, {"ids": [f"g{i:08x}" for i in range(201)]}):
+                self.assertEqual(self.call(path, body)[0], 400, (path, body))
+        self.assertEqual(self.listed("?kind=original"), {self.o})
+        status, _ = self.request("GET", "/api/gallery?trashed=maybe", None, self.auth)
+        self.assertEqual(status, 400)
+
+    def test_zip_of_a_trashed_id_and_delete_route_still_work(self):
+        self.call("/api/gallery/trash", {"ids": [self.o]})
+        status, body, _ = self.request_raw("GET", f"/api/gallery/zip?ids={self.o}", headers=self.auth)
+        self.assertEqual(status, 200)
+        self.assertEqual(self.call("/api/gallery/delete", {"ids": [self.o]})[1]["data"], {"deleted": 1})
+
+    def test_trash_routes_take_no_image_slot(self):
+        self.assertNotIn("/api/gallery/trash", web.IMAGE_ROUTES)
+        self.assertNotIn("/api/gallery/restore", web.IMAGE_ROUTES)
+
+
 if __name__ == "__main__":
     unittest.main()

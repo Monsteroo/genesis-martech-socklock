@@ -77,6 +77,8 @@ class Engine:
         broken = LibraryError("Метадані зображення пошкоджено.")
         if not isinstance(meta, dict):
             raise broken
+        if isinstance(meta.get("trashed"), str):
+            raise LibraryError("Зображення в кошику. Відновіть його, щоб працювати з ним.")
         base_prompt, size, style = meta.get("prompt"), meta.get("size"), meta.get("style")
         if not (isinstance(base_prompt, str) and base_prompt.strip() and len(base_prompt) <= MAX_QUICK_PROMPT):
             raise broken
@@ -181,8 +183,14 @@ class Engine:
         return self._store(make, prompt=base_prompt, size=size, parent=parent, style=style,
                                 kind="modification", change=change, root=root, market=market)
 
-    def list_gallery(self, kind=None, parent=None, root=None):
-        return {"items": self.gallery.find(kind=kind, parent=parent, root=root)}
+    def list_gallery(self, kind=None, parent=None, root=None, trashed=False):
+        return {"items": self.gallery.find(kind=kind, parent=parent, root=root, trashed=trashed)}
+
+    def trash_gallery(self, ids):
+        return {"trashed": self.gallery.set_trashed(ids, True)}
+
+    def restore_gallery(self, ids):
+        return {"restored": self.gallery.set_trashed(ids, False)}
 
     def delete_gallery(self, ids):
         if not isinstance(ids, list):

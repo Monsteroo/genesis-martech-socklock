@@ -20,6 +20,8 @@ ROUTES = {
     "/api/modify": lambda e, b: e.modify_image(b.get("parent"), b.get("change", ""), b.get("variation", 0), b.get("format")),
     "/api/localize": lambda e, b: e.localize_image(b.get("parent"), b.get("market"), b.get("format"), b.get("no_text")),
     "/api/gallery/delete": lambda e, b: e.delete_gallery(b["ids"]),
+    "/api/gallery/trash": lambda e, b: e.trash_gallery(b["ids"]),
+    "/api/gallery/restore": lambda e, b: e.restore_gallery(b["ids"]),
     "/api/captions/translate": lambda e, b: e.captions.translate(b.get("ids"), b.get("locales")),
 }
 PUT_ROUTES = {
@@ -145,9 +147,12 @@ def make_server(engine, port=8780, image_workers=None):
                 }})
             if url.path == "/api/gallery":
                 query = parse_qs(url.query)
+                flag = query.get("trashed", ["0"])[0]
                 try:
+                    if flag not in ("0", "1"):
+                        raise LibraryError("Некоректний параметр trashed.")
                     data = engine.list_gallery(query.get("kind", [None])[0], query.get("parent", [None])[0],
-                                               query.get("root", [None])[0])
+                                               query.get("root", [None])[0], flag == "1")
                 except LibraryError as exc:
                     return self._json(400, {"ok": False, "error": str(exc)})
                 return self._json(200, {"ok": True, "data": data})

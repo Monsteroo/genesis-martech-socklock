@@ -60,6 +60,57 @@ class GalleryTests(unittest.TestCase):
         plain = self.put("orig")
         self.assertEqual([(i["caption"], i["locale"]) for i in self.g.find(kind="original")], [(None, None)])
 
+    def test_trash_hides_from_find_and_restore_brings_back(self):
+        a = self.put("orig-a", created=1.0)
+        b = self.put("mod-b", created=2.0, parent=a, kind="modification", root=a, change="x")
+        self.assertEqual(self.g.set_trashed([a], True), 1)
+        self.assertEqual([i["id"] for i in self.g.find()], [b])                      # children stay
+        self.assertEqual(self.g.find(kind="original"), [])
+        self.assertEqual([i["id"] for i in self.g.find(parent=a)], [b])
+        self.assertEqual([i["id"] for i in self.g.find(root=a)], [b])
+        gone = self.g.find(trashed=True)
+        self.assertEqual([i["id"] for i in gone], [a])
+        self.assertRegex(gone[0]["trashed"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d")
+        self.assertIsNone(self.g.find()[0]["trashed"])
+        self.assertEqual(self.g.find(trashed=True, kind="modification"), [])
+        self.assertEqual(self.g.set_trashed([a], False), 1)
+        self.assertEqual({i["id"] for i in self.g.find()}, {a, b})
+        self.assertEqual(self.g.find(trashed=True), [])
+        self.assertNotIn("trashed", self.g.get(a))
+
+    def test_trash_is_idempotent_and_ignores_missing_ids(self):
+        a = self.put("orig-a")
+        self.g.set_trashed([a], True)
+        first = self.g.get(a)["trashed"]
+        self.assertEqual(self.g.set_trashed([a, "g00000000", a], True), 1)
+        self.assertEqual(self.g.get(a)["trashed"], first)
+        self.assertEqual(self.g.set_trashed(["g00000000"], False), 0)
+        self.g.set_trashed([a], False)
+        self.assertEqual(self.g.set_trashed([a], False), 1)
+        self.assertEqual(list(self.root.glob("*.part")), [])
+
+    def test_trash_validates_ids_and_cap(self):
+        for bad in (["../x"], ["g123"], [5], "g00000001", None):
+            with self.assertRaises(LibraryError, msg=repr(bad)):
+                self.g.set_trashed(bad, True)
+        with self.assertRaises(LibraryError):
+            self.g.set_trashed([f"g{i:08x}" for i in range(gallery.MAX_DELETE + 1)], True)
+
+    def test_trashed_items_can_be_zipped_and_deleted_for_good(self):
+        a = self.put("orig-a")
+        self.g.set_trashed([a], True)
+        with zipfile.ZipFile(io.BytesIO(self.g.zip_bytes([a]))) as z:
+            self.assertEqual(z.namelist(), [a + ".png"])
+        self.assertEqual(self.g.delete([a]), 1)
+        self.assertEqual(self.g.find(trashed=True), [])
+
+    def test_bad_trashed_value_in_a_file_counts_as_not_trashed(self):
+        a = self.put("orig-a")
+        meta = self.g.get(a)
+        meta["trashed"] = {"x": 1}
+        self.g.meta_path(a).write_text(json.dumps(meta), encoding="utf-8")
+        self.assertEqual([i["id"] for i in self.g.find()], [a])
+
     def test_kind_and_change_roundtrip_and_defaults(self):
         a = self.put("orig")
         b = self.put("mod", parent=a, kind="modification", change="evening light")
@@ -165,7 +216,7 @@ class GalleryTests(unittest.TestCase):
         meta = json.loads(self.g.meta_path(gid).read_text(encoding="utf-8"))
         meta["secret"] = "x"
         self.g.meta_path(gid).write_text(json.dumps(meta), encoding="utf-8")
-        self.assertEqual(sorted(self.g.find()[0]), ["caption", "change", "created", "id", "kind", "locale", "market", "parent", "prompt", "root", "size", "style"])
+        self.assertEqual(sorted(self.g.find()[0]), ["caption", "change", "created", "id", "kind", "locale", "market", "parent", "prompt", "root", "size", "style", "trashed"])
 
     def test_find_order_is_deterministic_on_equal_created(self):
         ids = [self.put(str(i), created=5.0) for i in range(5)]

@@ -639,5 +639,65 @@ class NoTextLocalizeAndOverlayTests(unittest.TestCase):
         self.assertEqual(len(self.engine.list_gallery()["items"]), 1)
 
 
+class TrashTests(unittest.TestCase):
+    def setUp(self):
+        self.fake = FakeImages()
+        self.engine = Engine(make_root(), FakeLLM(), images=self.fake)
+        self.o = self.engine.quick_image("Socks", "wide")
+        self.m = self.engine.modify_image(self.o["id"], "evening", 0)
+        self.engine.captions.put("en-US", {"cap_0123abcd": "Hi"})
+
+    def ids(self, **kw):
+        return {i["id"] for i in self.engine.list_gallery(**kw)["items"]}
+
+    def test_trash_restore_roundtrip_through_the_engine(self):
+        self.assertEqual(self.engine.trash_gallery([self.o["id"]]), {"trashed": 1})
+        self.assertEqual(self.ids(), {self.m["id"]})
+        self.assertEqual(self.ids(kind="original"), set())
+        self.assertEqual(self.ids(trashed=True), {self.o["id"]})
+        self.assertEqual(self.engine.restore_gallery([self.o["id"]]), {"restored": 1})
+        self.assertEqual(self.ids(), {self.o["id"], self.m["id"]})
+
+    def test_trashing_a_modification_moves_only_that_item(self):
+        m2 = self.engine.modify_image(self.m["id"], "bigger", 0)
+        self.engine.trash_gallery([self.m["id"]])
+        self.assertEqual(self.ids(), {self.o["id"], m2["id"]})
+        self.assertEqual(self.ids(trashed=True), {self.m["id"]})
+        listed = self.engine.list_gallery(trashed=True)["items"][0]
+        self.assertEqual((listed["kind"], listed["parent"], listed["root"], listed["change"]),
+                         ("modification", self.o["id"], self.o["id"], "evening"))
+
+    def test_a_trashed_parent_is_unavailable_until_restored(self):
+        for victim in (self.o["id"], self.m["id"]):
+            self.engine.trash_gallery([victim])
+            n = len(self.fake.edits)
+            with self.assertRaises(LibraryError) as ctx:
+                self.engine.modify_image(victim, "x", 0)
+            self.assertIn("кошику", str(ctx.exception))
+            with self.assertRaises(LibraryError):
+                self.engine.localize_image(victim, "de")
+            with self.assertRaises(LibraryError):
+                self.engine.overlay_image(real_png(), victim, "de", "cap_0123abcd")
+            self.assertEqual(len(self.fake.edits), n)   # no paid call
+            self.engine.restore_gallery([victim])
+            self.engine.modify_image(victim, "x", 0)
+
+    def test_a_child_of_a_trashed_parent_still_works_after_restore(self):
+        child = self.engine.modify_image(self.m["id"], "c", 0)
+        self.engine.trash_gallery([self.m["id"]])
+        self.assertEqual(self.engine.list_gallery(root=self.o["id"])["items"][0]["id"], child["id"])
+        self.engine.restore_gallery([self.m["id"]])
+        self.assertEqual(self.ids(root=self.o["id"]), {self.m["id"], child["id"]})
+
+    def test_permanent_delete_of_a_trashed_item_and_validation(self):
+        self.engine.trash_gallery([self.m["id"]])
+        self.assertEqual(self.engine.delete_gallery([self.m["id"]]), {"deleted": 1})
+        self.assertEqual(self.ids(trashed=True), set())
+        for call in (self.engine.trash_gallery, self.engine.restore_gallery):
+            for bad in ("g00000001", None, ["../x"], [1]):
+                with self.assertRaises(LibraryError):
+                    call(bad)
+
+
 if __name__ == "__main__":
     unittest.main()
