@@ -406,6 +406,26 @@ class ModifyImageTests(unittest.TestCase):
         self.assertIsNone(meta["change"])
         self.assertIn(visuals.VARIATIONS[2], self.fake.edits[0][0])
 
+    def test_a_modification_can_change_the_format(self):
+        meta = self.engine.modify_image(self.original["id"], "evening light", 0, "square")
+        self.assertEqual(meta["size"], "1024x1024")
+        prompt, _, size = self.fake.edits[0]
+        self.assertEqual(size, "1024x1024")
+        self.assertIn("Recompose the image for the new format (1024x1024)", prompt)
+        self.assertEqual(self.engine.gallery.get(meta["id"])["size"], "1024x1024")
+
+    def test_same_or_absent_format_keeps_the_parent_size(self):
+        for fmt in (None, "", "wide"):
+            meta = self.engine.modify_image(self.original["id"], "x", 0, fmt)
+            self.assertEqual(meta["size"], "1536x1024")
+        self.assertTrue(all("Recompose" not in e[0] for e in self.fake.edits))
+
+    def test_an_invalid_format_never_calls_the_provider(self):
+        for bad in ("huge", ["square"], 5, True, "../x"):
+            with self.assertRaises(LibraryError, msg=repr(bad)):
+                self.engine.modify_image(self.original["id"], "x", 0, bad)
+        self.assertEqual(self.fake.edits, [])
+
     def test_validation_never_calls_the_provider(self):
         for kwargs in ({"parent": "../x"}, {"parent": "g0000abcd"}, {"parent": self.original["id"], "change": "x" * 301},
                        {"parent": self.original["id"], "change": ["x"]}, {"parent": self.original["id"], "variation": -1},

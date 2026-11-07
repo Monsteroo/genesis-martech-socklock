@@ -7,6 +7,7 @@ video, plug in through register_provider(). There is no automatic fallback betwe
 import base64
 import math
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -107,6 +108,36 @@ VARIATIONS = (
     "with a different composition",
 )
 NO_TEXT_LINE = "No text, no logos, no watermarks."
+_QUOTED = re.compile(r"«([^»]{1,120})»|\"([^\"]{1,120})\"|“([^”]{1,120})”")
+_CAPTION_WORDS = ("підпис", "напис", "текст", "слоган", "caption", "text", "slogan", "headline")
+
+
+def _text_rule(*sources):
+    """Text on the image is allowed only when the user asks for a caption."""
+    joined = " ".join(s for s in sources if s)
+    if any(w in joined.lower() for w in ("без підпис", "без тексту", "без напис", "no text")):
+        return NO_TEXT_LINE
+    quoted = [next(g for g in m.groups() if g) for m in _QUOTED.finditer(joined)]
+    if quoted:
+        return ("Render this text on the image exactly as written, spelled correctly, "
+                "large and legible: " + "; ".join('"%s"' % q for q in quoted)
+                + ". No other text, no logos, no watermarks.")
+    if any(w in joined.lower() for w in _CAPTION_WORDS):
+        return ("Include the text or caption described above, spelled correctly and legible. "
+                "No logos, no watermarks.")
+    return NO_TEXT_LINE
+
+
+_NO_TEXT_WORDS = ("без підпис", "без тексту", "без напис", "прибери текст", "прибери підпис",
+                  "прибери напис", "no text", "remove text", "remove the text", "remove caption")
+_TRAIL_CAPTION = re.compile(r"[\s,;:–-]*(?:підпис|напис|слоган|caption|text|slogan|headline)\w*[\s,;:–-]*$", re.I)
+
+
+def _without_caption(text):
+    """The original idea minus its quoted caption, so an old caption is not rendered again."""
+    text = _QUOTED.sub("", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return _TRAIL_CAPTION.sub("", text).strip(" ,;:") or text
 
 
 def quick_prompt(prompt, style=None, variation=None):
@@ -119,18 +150,34 @@ def quick_prompt(prompt, style=None, variation=None):
             + VARIATIONS[variation % len(VARIATIONS)]
             + ", keeping the subject and style."
         )
-    parts.append(NO_TEXT_LINE)
+    parts.append(_text_rule(prompt))
     return "\n".join(parts)
 
 
-def modify_prompt(original_prompt, change=None, variation=0):
+def modify_prompt(original_prompt, change=None, variation=0, new_size=None):
     if change and change.strip():
         action = (f"Modify the provided image: {change.strip()}. "
                   "Keep the main subject, the composition and the style unless the change says otherwise.")
     else:
         action = ("Create a new variation of the provided image, " + VARIATIONS[variation % len(VARIATIONS)]
                   + ". Keep the same subject and style.")
-    return f"{action}\nOriginal idea: {original_prompt.strip()}\n{NO_TEXT_LINE}"
+    original = original_prompt.strip()
+    lowered = (change or "").lower()
+    if any(w in lowered for w in _NO_TEXT_WORDS):
+        rule = "Remove all existing text from the image. " + NO_TEXT_LINE
+        original = _without_caption(original)
+    elif change and _QUOTED.search(change):
+        quoted = [next(g for g in m.groups() if g) for m in _QUOTED.finditer(change)]
+        rule = ("Remove all existing text from the image and render only this text exactly as written, "
+                "spelled correctly, large and legible: " + "; ".join('"%s"' % q for q in quoted)
+                + ". No other text, no logos, no watermarks.")
+        original = _without_caption(original)
+    else:
+        rule = _text_rule(change, original_prompt)
+    if new_size:
+        action += (f"\nRecompose the image for the new format ({new_size}), "
+                   "keep the subject complete and not cropped or stretched.")
+    return f"{action}\nOriginal idea: {original}\n{rule}"
 
 
 class NoImages:

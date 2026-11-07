@@ -67,10 +67,18 @@ textarea:focus,input:focus,button:focus-visible,.pickbox:focus-within,[role="tab
 .tile.chooser .body.msg{padding-top:34px}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
 .chips button{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:5px 12px;font:inherit;font-size:14px;cursor:pointer}
-.group{margin-top:26px}
-.group.gone .again{display:none}
-.ghead{display:flex;align-items:center;gap:12px}
-.gthumb{flex:0 0 56px;width:56px;height:56px;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--card);display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:11px;text-align:center}
+select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg)}
+.subtabs{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 10px;margin-top:22px}
+.subtab{flex:0 0 auto;display:flex;align-items:center;gap:8px;max-width:230px;min-height:56px;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:12px;padding:6px 10px;font:inherit;font-size:14px;text-align:left;cursor:pointer}
+.subtab[aria-selected="true"]{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc)}
+.subtab .count{margin-left:0}
+.sublabel{flex:1 1 auto;min-width:0;word-break:break-word}
+.subpanel.gone .again{display:none}
+.section{margin-top:18px}
+.section h3{font-size:15px;margin:0 0 4px}
+.fmt{text-align:left}
+.subpanel .origline{margin-top:6px}
+.gthumb{flex:0 0 40px;width:40px;height:40px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--card);display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:11px;text-align:center}
 .gthumb img{width:100%;height:100%;object-fit:cover;display:block}
 .clip{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 [hidden]{display:none!important}
@@ -87,12 +95,17 @@ textarea:focus,input:focus,button:focus-visible,.pickbox:focus-within,[role="tab
   </div>
 
   <section id="p-originals" role="tabpanel" aria-labelledby="tab-originals">
-    <textarea id="prompt" aria-label="Опис зображення" placeholder="Опишіть, що потрібно. Наприклад: смугасті шкарпетки на дерев'яній підлозі, м'яке світло"></textarea>
-    <div id="examples" class="mut links">Приклади:
-      <button type="button" data-t="Смугасті шкарпетки на дерев'яній підлозі, м'яке світло">шкарпетки на підлозі</button>
-      <button type="button" data-t="Дівчина в кафе тримає чашку кави, природне світло з вікна">кава в кафе</button>
-      <button type="button" data-t="Яскравий пакет еко-кави на білому тлі">пакет кави</button>
+    <textarea id="prompt" aria-label="Опис зображення" placeholder="Опишіть, що потрібно. Наприклад: магнітні шкарпетки в пральній машині, підпис «Пара завжди разом»"></textarea>
+    <div id="examples" class="mut links">Приклади для SockLock:
+      <button type="button" data-t="Пара смугастих шкарпеток з магнітом на манжетах разом на дні відкритої пральної машини, тепле побутове світло">шкарпетки у пральці</button>
+      <button type="button" data-t="Одна самотня шкарпетка на підлозі біля пральної машини, поруч порожнє місце для пари, реалістичне фото">загублена шкарпетка</button>
+      <button type="button" data-t="Крупний план: два магніти на манжетах шкарпеток тримають пару разом, макрофото, м'яке світло">магніт крупним планом</button>
+      <button type="button" data-t="П'ять пар різнокольорових шкарпеток охайно складені рядом на світлому тлі, чисте студійне фото">п'ять пар</button>
+      <button type="button" data-t="Молода людина зранку одягає шкарпетки у світлій спальні, природне світло з вікна, лайфстайл">ранок удома</button>
+      <button type="button" data-t="Пара шкарпеток на білому тлі, підпис «Більше жодної загубленої шкарпетки»">з підписом</button>
+      <button type="button" data-t="Картонна коробка з п'ятьма парами шкарпеток на порозі будинку, доставка підписки, денне світло">доставка</button>
     </div>
+    <div class="mut small">Щоб додати підпис на фото, напишіть його в лапках: підпис «Ваш текст».</div>
     <div class="row"><span class="lbl">Скільки</span><div class="seg" id="count" role="group" aria-label="Скільки зображень"></div></div>
     <div class="row"><span class="lbl">Формат</span><div class="seg" id="format" role="group" aria-label="Формат"></div></div>
     <div class="row"><span class="lbl">Стиль</span><div class="seg" id="style" role="group" aria-label="Стиль"></div></div>
@@ -118,16 +131,25 @@ textarea:focus,input:focus,button:focus-visible,.pickbox:focus-within,[role="tab
       <button id="smore" class="more" type="button" hidden>Показати ще</button>
 
       <h2>2. Що змінити? <span class="mut">(необов'язково)</span></h2>
-      <input type="text" id="change" maxlength="300" aria-label="Що змінити" placeholder="Наприклад: вечірнє світло, інший фон, ближчий план">
+      <input type="text" id="change" maxlength="300" aria-label="Що змінити" placeholder="Наприклад: вечірнє світло або замінити підпис на «Нова назва»">
       <div id="chips" class="chips" role="group" aria-label="Швидкі підказки"></div>
       <div class="row"><span class="lbl">На кожен оригінал</span><div class="seg" id="mcount" role="group" aria-label="Скільки на кожен оригінал"></div></div>
+      <div class="row"><label class="lbl" for="mformat">Формат</label>
+        <select id="mformat">
+          <option value="" selected>Як в оригіналі</option>
+          <option value="vertical">Вертикальний</option>
+          <option value="square">Квадрат</option>
+          <option value="wide">Широкий</option>
+        </select></div>
       <div class="row"><button id="mgo" class="go" type="button" aria-disabled="true">Створити зображення</button><span id="mhint" class="mut"></span></div>
       <div id="mmsg" class="mut" role="status" aria-live="polite"></div>
     </div>
     <div id="mnote" class="mut" role="status" aria-live="polite"></div>
 
     <div id="mempty" class="mut" hidden>Тут з'являться змінені версії. Оберіть оригінали вище й натисніть «Створити».</div>
-    <div id="groups"></div>
+    <div id="subtabs" class="subtabs" role="tablist" aria-label="Оригінали з модифікаціями" hidden></div>
+    <button id="tmore" class="more" type="button" hidden>Ще оригінали</button>
+    <div id="subpanels"></div>
     <button id="gmore" class="more" type="button" hidden>Показати ще</button>
   </section>
 </main>
@@ -147,10 +169,11 @@ const SLOW = "Сервер довго не відповідає. Спробуй�
 const STALE = "Сторінка застаріла. Оновіть її (F5).";
 const AMBIGUOUS = "Зображення могло вже створитися. Оновіть сторінку й перегляньте галерею.";
 const PAGE = 24;        // originals per page
-const GROUP_PAGE = 8;   // modifications per page inside one group
-const GROUPS_PAGE = 5;  // groups per page
+const GROUP_PAGE = 8;   // modifications per page inside one section
+const SECTIONS_PAGE = 5; // sections per original on first open
+const SUBS_PAGE = 8;    // sub-tabs shown at first
 const MAX_BATCH = 24;   // most images one click may start
-const CHIPS = ["інше світло", "інший ракурс", "інший фон", "інші кольори", "ближче", "ширше"];
+const CHIPS = ["інше світло", "інший ракурс", "інший фон", "інші кольори", "ближче", "ширше", "додай підпис «Пара завжди разом»", "замінити підпис на «…»", "без підпису", "для зими", "для літа", "інша модель", "в руці"];
 const TABS = { originals: "Оригінали", modifications: "Модифікації" };
 
 const $ = (id) => document.getElementById(id);
@@ -406,10 +429,11 @@ function updateChrome() {
   $("empty").hidden = !ready || store.originals.length > 0 || [...tiles].some((t) => t.tab === "originals");
   $("noorig").hidden = !ready || store.originals.length > 0;
   $("modform").hidden = !ready || store.originals.length === 0;
-  $("mempty").hidden = !modsBuilt || groups.size > 0 || store.originals.length === 0;
+  $("mempty").hidden = !modsBuilt || subs.size > 0 || store.originals.length === 0;
   $("more").hidden = origRest.length === 0;
   $("smore").hidden = stripRest.length === 0;
-  $("gmore").hidden = pendingGroups.size === 0;
+  syncSubs();
+  renderSubTabs();
   updateLabels();
 }
 
@@ -434,7 +458,7 @@ function showTab(name, pickId, focus) {
     $("tab-" + id).tabIndex = on ? 0 : -1;
     $("p-" + id).hidden = !on;
   }
-  history.replaceState(null, "", "#" + name);
+  history.replaceState(null, "", "#" + name + (name === "modifications" && selectedSub ? "/" + selectedSub : ""));
   if (changed) clearPicks();
   if (name === "modifications") buildMods();
   if (pickId) {
@@ -457,7 +481,16 @@ for (const id of Object.keys(TABS)) {
   });
 }
 $("toorig").addEventListener("click", () => showTab("originals", undefined, true));
-addEventListener("hashchange", () => showTab(location.hash === "#modifications" ? "modifications" : "originals"));
+function parseHash() {
+  const m = /^#(originals|modifications)(?:\/(g[0-9a-f]{8}))?$/.exec(location.hash);
+  return { tab: m && m[1] === "modifications" ? "modifications" : "originals", sub: (m && m[2]) || null };
+}
+addEventListener("hashchange", () => {
+  const { tab, sub } = parseHash();
+  if (tab === "modifications") wantedSub = sub;
+  showTab(tab);
+  if (tab === "modifications" && sub && subs.has(sub)) selectSub(sub, false);
+});
 
 /* ---------- tiles: one component for originals, modifications and the chooser strip ---------- */
 // opts: role ("original" | "modification" | "chooser"), meta (existing image) or payload+route (to generate),
@@ -527,10 +560,11 @@ function makeTile(opts) {
     extra.addEventListener("click", () => {
       if (role === "original") return showTab("modifications", tile.meta.id);
       if (!startGuard(4)) return;
-      const { parent, change } = tile.meta;
-      // Different variation numbers on every click, counting jobs still running.
+      const { parent, change, size } = tile.meta;
+      // Different variation numbers on every click, counting jobs still running. The same format as this tile.
       const used = store.mods.filter((m) => m.parent === parent).length + [...tile.group.members].filter((t) => !t.meta).length;
-      generateMods([0, 1, 2, 3].map((i) => ({ parent, change: change || "", variation: used + i })));
+      generateMods([0, 1, 2, 3].map((i) => ({ parent, change: change || "", variation: used + i,
+        ...(SIZE_FORMAT[size] ? { format: SIZE_FORMAT[size] } : {}) })));
     });
     return h("div", { className: "acts" }, extra, dl);
   }
@@ -561,6 +595,7 @@ function makeTile(opts) {
     body.replaceChildren(open);
     if (role !== "chooser" && !el.querySelector(".acts")) {
       if (role === "modification" && meta.change) el.append(h("div", { className: "mut small clip" }, meta.change));
+      if (role === "modification" && FORMAT_NAME[meta.size]) el.append(h("div", { className: "mut small fmt" }, FORMAT_NAME[meta.size]));
       el.append(actions());
     }
   };
@@ -703,13 +738,22 @@ function addOriginal(meta) {
   updateChrome();
 }
 
-/* ---------- modification groups (one per original) ---------- */
-const groups = new Map();        // original id -> group
-const pendingGroups = new Map(); // original id -> its saved modifications, not shown yet
+/* ---------- modifications: one sub-tab per original, sections by change + format ---------- */
+const subs = new Map();   // original id -> sub (a sub-tab and its panel)
+let subOrder = [];        // original ids, the tab order (newest work first)
+let selectedSub = null;
+let wantedSub = null;     // from the hash, used when the tab is built
+let subLimit = SUBS_PAGE;
 
-// The small picture of the original in a group header; a neutral box if the original is gone.
+const SIZE_FORMAT = { "1024x1536": "vertical", "1024x1024": "square", "1536x1024": "wide" };
+const FORMAT_SIZE = Object.fromEntries(Object.entries(SIZE_FORMAT).map(([size, key]) => [key, size]));
+const FORMAT_NAME = { "1024x1536": "Вертикальний", "1024x1024": "Квадрат", "1536x1024": "Широкий" };
+const sectionKey = (change, size) => JSON.stringify([change || "", size || ""]);
+const sectionTitle = (change, size) => (change || "варіації") + (FORMAT_NAME[size] ? " · " + FORMAT_NAME[size].toLowerCase() : "");
+
+// The small picture of the original in a sub-tab; a neutral box if the original is gone.
 function makeThumb(id) {
-  const el = h("div", { className: "gthumb" }, "…");
+  const el = h("span", { className: "gthumb" }, "…");
   const thumb = { el, lease: null, dead: false };
   const release_ = () => { if (thumb.lease) release(thumb.lease); thumb.lease = null; };
   const placeholder = (text, title) => { el.title = title; el.replaceChildren(text); };
@@ -723,7 +767,7 @@ function makeThumb(id) {
     try {
       await lease.promise;
       if (thumb.dead) return;
-      el.replaceChildren(h("img", { src: lease.url, alt: "Оригінал" }));
+      el.replaceChildren(h("img", { src: lease.url, alt: "" }));
     } catch (e) {
       if (!thumb.dead) placeholder(e && e.status === 404 ? "видалено" : "немає", e && e.status === 404 ? "Оригінал видалено" : "Оригінал не вдалося завантажити");
     }
@@ -731,71 +775,190 @@ function makeThumb(id) {
   return thumb;
 }
 
-function makeGroup(parent, prompt) {
-  const thumb = makeThumb(parent);
+function makeSub(parent, prompt) {
+  const count = h("span", { className: "count" }, "0");
+  const label = h("span", { className: "clip sublabel" }, short(prompt) || "Оригінал");
+  const btn = h("button", { type: "button", id: "sub-" + parent, className: "subtab" }, label, count);
+  btn.setAttribute("role", "tab");
+  btn.setAttribute("aria-controls", "subp-" + parent);
+  const panel = h("div", { id: "subp-" + parent, className: "subpanel" + (isGone(parent) ? " gone" : ""), hidden: true });
+  panel.setAttribute("role", "tabpanel");
+  panel.setAttribute("aria-labelledby", btn.id);
+  const sub = { parent, prompt: prompt || "", btn, count, panel, thumb: null, sections: new Map(), pending: new Map(), built: false };
+  if (prompt) panel.append(h("div", { className: "mut small clip origline" }, "Оригінал: " + prompt));
+  btn.addEventListener("click", () => selectSub(parent, false));
+  $("subpanels").append(panel);
+  subs.set(parent, sub);
+  return sub;
+}
+
+function makeSection(sub, change, size) {
   const grid = h("div", { className: "grid" });
   const more = h("button", { type: "button", className: "more", hidden: true }, "Показати ще");
-  const head = h("div", { className: "ghead" }, thumb.el,
-    h("div", {}, h("b", {}, "з оригіналу"), h("div", { className: "mut small clip" }, prompt || "")));
-  const el = h("section", { className: "group" + (isGone(parent) ? " gone" : "") }, head, grid, more);
-  el.setAttribute("aria-label", "Модифікації оригіналу" + (prompt ? ": " + short(prompt) : ""));
-  const group = { el, rest: [], members: new Set() };
+  const title = sectionTitle(change, size);
+  const el = h("section", { className: "section" }, h("h3", {}, title), grid, more);
+  el.setAttribute("aria-label", title);
+  const section = { el, rest: [], members: new Set() };
 
-  group.addFirst = (list) => { list.forEach((t) => group.members.add(t)); grid.prepend(...list.map((t) => t.el)); };
+  section.addFirst = (list) => { list.forEach((t) => section.members.add(t)); grid.prepend(...list.map((t) => t.el)); };
 
-  group.page = () => {
-    const batch = group.rest.splice(0, GROUP_PAGE).map((meta) => makeTile({ role: "modification", meta, group }));
-    for (const t of batch) { group.members.add(t); grid.append(t.el); }
-    more.hidden = group.rest.length === 0;
+  section.page = () => {
+    const batch = section.rest.splice(0, GROUP_PAGE).map((meta) => makeTile({ role: "modification", meta, group: section }));
+    for (const t of batch) { section.members.add(t); grid.append(t.el); }
+    more.hidden = section.rest.length === 0;
     batch.forEach((t) => t.submit());
     updateChrome();
   };
-  more.addEventListener("click", group.page);
+  more.addEventListener("click", section.page);
 
-  group.markGone = () => { el.classList.add("gone"); thumb.gone(); };
-
-  group.drop = (t) => {
-    group.members.delete(t);
-    if (group.members.size > 0) return;
-    if (group.rest.length) return group.page();
-    thumb.destroy();
+  section.drop = (t) => {
+    section.members.delete(t);
+    if (section.members.size > 0) return;
+    if (section.rest.length) return section.page();
     el.remove();
-    groups.delete(parent);
+    for (const [key, s] of sub.sections) if (s === section) sub.sections.delete(key);
   };
-  return group;
+  return section;
 }
 
-// where: "top" for new work, "bottom" when paging through older groups.
-function groupFor(parent, prompt, where) {
-  let group = groups.get(parent);
-  if (!group) {
-    group = makeGroup(parent, prompt);
-    groups.set(parent, group);
-    $("groups")[where === "top" ? "prepend" : "append"](group.el);
-    if (pendingGroups.has(parent)) {
-      group.rest = pendingGroups.get(parent);
-      pendingGroups.delete(parent);
-      group.page();
+// where: "top" for new work, "bottom" when paging through older sections.
+function sectionFor(sub, change, size, where) {
+  const key = sectionKey(change, size);
+  let section = sub.sections.get(key);
+  if (!section) {
+    section = makeSection(sub, change, size);
+    sub.sections.set(key, section);
+    sub.panel.insertBefore(section.el, where === "top" ? sub.panel.querySelector(".section") : null);
+    if (sub.pending.has(key)) {
+      section.rest = sub.pending.get(key);
+      sub.pending.delete(key);
+      section.page();
     }
   } else if (where === "top") {
-    $("groups").prepend(group.el);
+    sub.panel.insertBefore(section.el, sub.panel.querySelector(".section"));
   }
-  return group;
+  return section;
 }
 
-function showMoreGroups() {
-  for (const [parent, metas] of [...pendingGroups].slice(0, GROUPS_PAGE)) groupFor(parent, metas[0].prompt, "bottom");
-  updateChrome();
+function showMoreSections(sub) {
+  for (const [key, metas] of [...sub.pending].slice(0, SECTIONS_PAGE)) sectionFor(sub, metas[0].change, metas[0].size, "bottom");
 }
-$("gmore").addEventListener("click", showMoreGroups);
+
+// Saved modifications of one original are fetched only now, when its sub-tab is opened.
+function buildSub(sub) {
+  if (sub.built) return;
+  sub.built = true;
+  const shown = new Set();
+  for (const s of sub.sections.values()) for (const t of s.members) if (t.meta) shown.add(t.meta.id);
+  const byKey = new Map();
+  for (const meta of store.mods) {
+    if (meta.parent !== sub.parent || shown.has(meta.id)) continue;
+    const key = sectionKey(meta.change, meta.size);
+    byKey.set(key, [...(byKey.get(key) || []), meta]);
+  }
+  for (const [key, metas] of byKey) {
+    const section = sub.sections.get(key);
+    if (section) { section.rest.push(...metas); section.page(); } else sub.pending.set(key, metas);
+  }
+  showMoreSections(sub);
+}
+
+const subCount = (sub) => {
+  let n = store.mods.filter((m) => m.parent === sub.parent).length;
+  for (const s of sub.sections.values()) for (const t of s.members) if (!t.meta) n++;
+  return n;
+};
+
+const visibleSubs = () => subOrder.filter((id, i) => i < subLimit || id === selectedSub).map((id) => subs.get(id));
+
+function renderSubTabs() {
+  const list = visibleSubs();
+  const tabs = [];
+  for (const sub of list) {
+    if (!sub.thumb) { sub.thumb = makeThumb(sub.parent); sub.btn.prepend(sub.thumb.el); }
+    const on = sub.parent === selectedSub;
+    sub.btn.setAttribute("aria-selected", String(on));
+    sub.btn.tabIndex = on ? 0 : -1;
+    sub.panel.hidden = !on;
+    const n = subCount(sub);
+    sub.count.textContent = n;
+    sub.btn.setAttribute("aria-label", "Оригінал" + (sub.prompt ? ": " + short(sub.prompt) : "") + ", модифікацій: " + n);
+    tabs.push(sub.btn);
+  }
+  for (const sub of subs.values()) if (!list.includes(sub)) sub.panel.hidden = true;
+  const cur = [...$("subtabs").children];
+  if (cur.length !== tabs.length || tabs.some((b, i) => cur[i] !== b)) $("subtabs").replaceChildren(...tabs);   // keeps focus when nothing moved
+  $("subtabs").hidden = tabs.length === 0;
+  const hiddenCount = subOrder.length - list.length;
+  $("tmore").hidden = hiddenCount <= 0;
+  $("tmore").textContent = "Ще оригінали (" + hiddenCount + ")";
+  const sel = selectedSub && subs.get(selectedSub);
+  $("gmore").hidden = !(sel && sel.pending.size > 0);
+}
+
+function selectSub(parent, focus) {
+  const sub = subs.get(parent);
+  if (!sub) return;
+  if (selectedSub !== parent) {
+    selectedSub = parent;
+    for (const t of tiles) if (t.tab === "modifications" && t.pickEl) t.setPicked(false);   // the bar never counts hidden tiles
+    barNote();
+  }
+  buildSub(sub);
+  rememberHash();
+  updateChrome();
+  if (focus) sub.btn.focus();
+}
+
+function rememberHash() {
+  if (active === "modifications") history.replaceState(null, "", "#modifications" + (selectedSub ? "/" + selectedSub : ""));
+}
+
+// A sub-tab exists while its original has modifications. When the selected one is gone, the first takes over.
+function syncSubs() {
+  if (!modsBuilt) return;
+  let removed = false;
+  for (const [id, sub] of [...subs]) {
+    const saved = store.mods.some((m) => m.parent === id);
+    if (sub.sections.size || sub.pending.size || (!sub.built && saved)) continue;
+    if (sub.thumb) sub.thumb.destroy();
+    sub.panel.remove();
+    subs.delete(id);
+    subOrder = subOrder.filter((x) => x !== id);
+    removed = true;
+  }
+  if (selectedSub && !subs.has(selectedSub)) selectedSub = null;
+  if (!selectedSub && subOrder.length) { selectSub(subOrder[0], false); return; }
+  if (removed) rememberHash();
+}
+
+function subTabKeys(e) {
+  const ids = visibleSubs().map((s) => s.parent);
+  const at = ids.indexOf(selectedSub);
+  const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: ids.length - 1 }[e.key];
+  if (next === undefined || !ids.length) return;
+  e.preventDefault();
+  selectSub(ids[(next + ids.length) % ids.length], true);
+}
+$("subtabs").addEventListener("keydown", subTabKeys);
+$("tmore").addEventListener("click", () => { subLimit += SUBS_PAGE; renderSubTabs(); });
+$("gmore").addEventListener("click", () => {
+  const sub = subs.get(selectedSub);
+  if (sub) showMoreSections(sub);
+  updateChrome();
+});
 
 // The hidden tab is built on first open only: no image of it is requested before.
 function buildMods() {
   if (modsBuilt || !loaded) return;
   modsBuilt = true;
-  for (const meta of store.mods) pendingGroups.set(meta.parent, [...(pendingGroups.get(meta.parent) || []), meta]);
+  for (const meta of store.mods) {
+    if (!subs.has(meta.parent)) { makeSub(meta.parent, meta.prompt); subOrder.push(meta.parent); }
+  }
+  const first = wantedSub && subs.has(wantedSub) ? wantedSub : subOrder[0];
+  wantedSub = null;
+  if (first) selectSub(first, false);   // before anything calls updateChrome, which would pick the first sub-tab itself
   showMoreStrip();
-  showMoreGroups();
 }
 
 /* ---------- modifications: start ---------- */
@@ -803,15 +966,25 @@ function generateMods(payloads) {
   const byParent = new Map();
   for (const p of payloads) byParent.set(p.parent, [...(byParent.get(p.parent) || []), p]);
   const fresh = [];
-  // Walk backwards so the first selected original ends up as the top group.
+  // Walk backwards so the first selected original ends up as the first sub-tab.
   for (const [parent, list] of [...byParent].reverse()) {
-    const meta = store.originals.find((m) => m.id === parent) || store.mods.find((m) => m.parent === parent);
-    const group = groupFor(parent, meta && meta.prompt, "top");
-    const made = list.map((payload) => makeTile({ role: "modification", payload, route: "/api/modify", group,
-      onFresh: (m) => { store.mods.unshift(m); updateChrome(); } }));
-    group.addFirst(made);
+    const orig = store.originals.find((m) => m.id === parent);
+    const meta = orig || store.mods.find((m) => m.parent === parent);
+    let sub = subs.get(parent);
+    if (!sub) sub = makeSub(parent, meta && meta.prompt);
+    subOrder = [parent, ...subOrder.filter((x) => x !== parent)];
+    const made = [];
+    for (const payload of list) {
+      const size = payload.format ? FORMAT_SIZE[payload.format] : (orig && orig.size) || "";
+      const section = sectionFor(sub, payload.change, size, "top");
+      const tile = makeTile({ role: "modification", payload, route: "/api/modify", group: section,
+        onFresh: (m) => { store.mods.unshift(m); updateChrome(); } });
+      section.addFirst([tile]);
+      made.push(tile);
+    }
     fresh.unshift(...made);
   }
+  selectSub([...byParent.keys()][0], false);
   fresh.forEach((t) => t.submit());
   updateChrome();
   if (fresh.length && !reducedMotion()) fresh[0].el.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -823,9 +996,12 @@ function generateModsFromForm() {
   const picks = chosen();
   if (!startGuard(picks.length * state.mcount)) return;
   const change = $("change").value.trim();
+  const format = $("mformat").value;   // "" = as in the original: the field is not sent
   const payloads = [];
   for (const t of picks) {
-    for (let variation = 0; variation < state.mcount; variation++) payloads.push({ parent: t.meta.id, change, variation });
+    for (let variation = 0; variation < state.mcount; variation++) {
+      payloads.push({ parent: t.meta.id, change, variation, ...(format ? { format } : {}) });
+    }
   }
   generateMods(payloads);
 }
@@ -866,8 +1042,8 @@ function forget(ids) {
     if (originalIds.delete(id)) {
       const t = strip.get(id);
       if (t) t.remove();
-      const g = groups.get(id);
-      if (g) g.markGone();
+      const sub = subs.get(id);
+      if (sub) { sub.panel.classList.add("gone"); if (sub.thumb) sub.thumb.gone(); }
     }
   }
 }
@@ -899,7 +1075,9 @@ function showKeyBanner(visuals) {
 const listOf = (res) => (res.ok && res.data && Array.isArray(res.data.items) ? res.data.items : null);
 
 async function start() {
-  showTab(location.hash === "#modifications" ? "modifications" : "originals");
+  const first = parseHash();
+  if (first.tab === "modifications") wantedSub = first.sub;
+  showTab(first.tab);
   const [config, visuals, originals, mods] = await Promise.all([
     apiQuiet("/api/config"), apiQuiet("/api/visuals"),
     apiQuiet("/api/gallery?kind=original"), apiQuiet("/api/gallery?kind=modification")]);

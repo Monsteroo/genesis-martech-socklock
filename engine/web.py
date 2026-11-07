@@ -16,7 +16,7 @@ GALLERY_PNG = re.compile(r"/api/g/(g[0-9a-f]{8})\.png")
 
 ROUTES = {
     "/api/gen": lambda e, b: e.quick_image(b.get("prompt", ""), b.get("format") or "vertical", b.get("style")),
-    "/api/modify": lambda e, b: e.modify_image(b.get("parent"), b.get("change", ""), b.get("variation", 0)),
+    "/api/modify": lambda e, b: e.modify_image(b.get("parent"), b.get("change", ""), b.get("variation", 0), b.get("format")),
     "/api/gallery/delete": lambda e, b: e.delete_gallery(b["ids"]),
 }
 

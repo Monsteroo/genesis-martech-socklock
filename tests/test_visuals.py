@@ -373,6 +373,31 @@ class SizeParameterTests(unittest.TestCase):
         with self.assertRaises(visuals.VisualsUnavailable):
             visuals.NoImages().generate("x", tmp / "n.png", size="1024x1024")
 
+class CaptionTests(unittest.TestCase):
+    def test_quoted_text_is_rendered_not_forbidden(self):
+        for raw in ('Шкарпетки, підпис «Не губи пару»', 'Socks, caption "Never lose a pair"'):
+            text = visuals.quick_prompt(raw)
+            self.assertNotIn("No text", text)
+            self.assertIn("exactly", text)
+        self.assertIn("Не губи пару", visuals.quick_prompt('X, підпис «Не губи пару»'))
+
+    def test_caption_word_without_quotes_still_allows_text(self):
+        text = visuals.quick_prompt("Шкарпетки з підписом про магніт")
+        self.assertNotIn("No text", text)
+
+    def test_without_caption_wins(self):
+        self.assertIn("No text", visuals.modify_prompt("socks", "без підпису"))
+
+    def test_plain_prompt_keeps_no_text(self):
+        self.assertIn("No text, no logos", visuals.quick_prompt("Шкарпетки на підлозі"))
+
+    def test_modify_change_with_caption(self):
+        text = visuals.modify_prompt("socks", 'додай підпис «Sale»')
+        self.assertNotIn("No text", text)
+        self.assertIn("Sale", text)
+        self.assertIn("No text", visuals.modify_prompt("socks", "інше світло"))
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -389,6 +414,50 @@ class ModifyPromptTests(unittest.TestCase):
         text = visuals.modify_prompt("Socks on a floor", None, 3)
         self.assertIn(visuals.VARIATIONS[3], text)
         self.assertIn(visuals.VARIATIONS[0], visuals.modify_prompt("x", "", len(visuals.VARIATIONS)))
+
+
+class ReplaceCaptionTests(unittest.TestCase):
+    ORIGINAL = 'Socks on a floor, підпис «Стара назва»'
+
+    def test_a_new_caption_replaces_the_old_one(self):
+        text = visuals.modify_prompt(self.ORIGINAL, 'замінити підпис на «Нова назва»')
+        self.assertIn('Remove all existing text from the image and render only this text exactly as written', text)
+        self.assertIn('"Нова назва"', text)
+        self.assertNotIn("Стара назва", text)
+        self.assertIn("Socks on a floor", text)
+        self.assertIn("No other text, no logos, no watermarks.", text)
+
+    def test_english_quotes_in_the_change_also_replace(self):
+        text = visuals.modify_prompt('Socks, caption "Old one"', 'new caption "Fresh"')
+        self.assertIn('"Fresh"', text)
+        self.assertNotIn("Old one", text)
+
+    def test_removing_the_caption_removes_existing_text(self):
+        for change in ("без підпису", "прибери текст", "прибери підпис", "no text"):
+            text = visuals.modify_prompt(self.ORIGINAL, change)
+            self.assertIn("Remove all existing text", text, change)
+            self.assertIn(visuals.NO_TEXT_LINE, text, change)
+            self.assertNotIn("Стара назва", text, change)
+
+    def test_a_change_without_caption_words_keeps_the_original_caption_rule(self):
+        text = visuals.modify_prompt(self.ORIGINAL, "вечірнє світло")
+        self.assertIn("Стара назва", text)
+        self.assertIn("exactly as written", text)
+        self.assertNotIn("Remove all existing text", text)
+        plain = visuals.modify_prompt("Socks on a floor", "вечірнє світло")
+        self.assertIn(visuals.NO_TEXT_LINE, plain)
+        self.assertNotIn("Remove all existing text", plain)
+
+
+class ModifyPromptFormatTests(unittest.TestCase):
+    def test_a_new_size_adds_a_recompose_line(self):
+        text = visuals.modify_prompt("Socks", "evening light", 0, new_size="1024x1024")
+        self.assertIn("Recompose the image for the new format (1024x1024)", text)
+        self.assertIn("not cropped or stretched", text)
+
+    def test_no_new_size_keeps_the_prompt_as_before(self):
+        self.assertNotIn("Recompose", visuals.modify_prompt("Socks", "evening light", 0))
+        self.assertNotIn("Recompose", visuals.modify_prompt("Socks", None, 1, new_size=None))
 
 
 class OpenAIEditTests(unittest.TestCase):

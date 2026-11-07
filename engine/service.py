@@ -90,7 +90,7 @@ class Engine:
             raise missing from None
         return base_prompt, size, style, src
 
-    def modify_image(self, parent=None, change="", variation=0):
+    def modify_image(self, parent=None, change="", variation=0, format=None):
         base_prompt, size, style, src = self._parent_meta(parent)
         if change is None:
             change = ""
@@ -99,7 +99,13 @@ class Engine:
         change = change.strip() or None
         if not isinstance(variation, int) or isinstance(variation, bool) or variation < 0:
             raise LibraryError("Некоректний номер варіації.")
-        final = visuals.modify_prompt(base_prompt, change, variation)
+        new_size = None
+        if format not in (None, ""):
+            if not isinstance(format, str) or format not in visuals.SIZES:
+                raise LibraryError(f"Невідомий формат. Доступні: {', '.join(visuals.SIZES)}")
+            if visuals.SIZES[format] != size:
+                size = new_size = visuals.SIZES[format]
+        final = visuals.modify_prompt(base_prompt, change, variation, new_size)
 
         def make(dest):
             self.images.edit(final, src, dest, size=size)

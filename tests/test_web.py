@@ -526,6 +526,19 @@ class ModifyWebTests(HttpMixin, unittest.TestCase):
         status, text = self.request("GET", "/api/gallery?kind=original")
         self.assertEqual([m["id"] for m in json.loads(text)["data"]["items"]], [oid])
 
+    def test_modify_accepts_a_format_and_rejects_a_bad_one(self):
+        _, orig = self.post("/api/gen", {"prompt": "Socks", "format": "wide"})
+        oid = orig["data"]["id"]
+        status, mod = self.post("/api/modify", {"parent": oid, "change": "x", "format": "vertical"})
+        self.assertEqual((status, mod["data"]["size"]), (200, "1024x1536"))
+        self.assertEqual(self.fake.edits[-1][2], "1024x1536")
+        status, mod = self.post("/api/modify", {"parent": oid, "change": "x"})
+        self.assertEqual(mod["data"]["size"], "1536x1024")
+        count = len(self.fake.edits)
+        status, _ = self.post("/api/modify", {"parent": oid, "change": "x", "format": "huge"})
+        self.assertEqual(status, 400)
+        self.assertEqual(len(self.fake.edits), count)
+
     def test_modify_needs_a_token_and_validates(self):
         status, _ = self.request("POST", "/api/modify", {"parent": "g0000abcd"})
         self.assertEqual(status, 403)
