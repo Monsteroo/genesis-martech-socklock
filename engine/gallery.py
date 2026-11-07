@@ -13,7 +13,7 @@ from engine.library import LibraryError
 _ID = re.compile(r"g[0-9a-f]{8}")
 MAX_ZIP = 50
 MAX_DELETE = 200
-KEYS = ("id", "prompt", "size", "parent", "style", "created")
+KEYS = ("id", "prompt", "size", "parent", "root", "market", "style", "created")
 KINDS = ("original", "modification")
 MAX_CHANGE = 300
 
@@ -48,13 +48,14 @@ class Gallery:
                 return gid
         raise LibraryError("Не вдалося створити id зображення.")
 
-    def add(self, gid, prompt, size, parent=None, style=None, created=None, kind="original", change=None):
+    def add(self, gid, prompt, size, parent=None, style=None, created=None, kind="original", change=None, root=None, market=None):
         if kind not in KINDS:
             raise LibraryError("Невідомий вид зображення.")
         if change is not None and not (isinstance(change, str) and len(change) <= MAX_CHANGE):
             raise LibraryError("Некоректний опис зміни.")
         meta = {"id": gid, "prompt": prompt, "size": size, "parent": parent, "style": style,
-                "created": time.time() if created is None else created, "kind": kind, "change": change}
+                "created": time.time() if created is None else created, "kind": kind, "change": change,
+                "root": root, "market": market}
         path = self.meta_path(gid)
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".part")
@@ -74,11 +75,13 @@ class Gallery:
         except (OSError, ValueError):
             raise LibraryError("Зображення не знайдено.") from None
 
-    def find(self, limit=200, kind=None, parent=None):
+    def find(self, limit=200, kind=None, parent=None, root=None):
         if kind is not None and kind not in KINDS:
             raise LibraryError("Невідомий вид зображення.")
         if parent is not None:
             check(parent)
+        if root is not None:
+            check(root)
         if not self.root.is_dir():
             return []
         items = []
@@ -103,7 +106,7 @@ class Gallery:
             item["prompt"] = prompt if isinstance(prompt, str) else ""
             if not isinstance(item["size"], str):
                 continue
-            for k in ("parent", "style"):
+            for k in ("parent", "root", "market", "style"):
                 if not isinstance(item[k], str):
                     item[k] = None
             item["created"] = created
@@ -112,9 +115,14 @@ class Gallery:
                 item["kind"] = stored
             else:
                 item["kind"] = "modification" if _ID.fullmatch(item["parent"] or "") else "original"
+            if item["kind"] == "original":
+                item["root"] = None
+            elif not _ID.fullmatch(item["root"] or ""):
+                item["root"] = item["parent"]  # older records had a single level
             change = meta.get("change")
             item["change"] = change if isinstance(change, str) and len(change) <= MAX_CHANGE else None
-            if (kind is not None and item["kind"] != kind) or (parent is not None and item["parent"] != parent):
+            if (kind is not None and item["kind"] != kind) or (parent is not None and item["parent"] != parent) \
+                    or (root is not None and item["root"] != root):
                 continue
             items.append(item)
         items.sort(key=lambda m: (m["created"], m["id"]), reverse=True)

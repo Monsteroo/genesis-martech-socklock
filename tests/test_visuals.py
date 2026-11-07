@@ -334,7 +334,7 @@ class QuickPromptTests(unittest.TestCase):
     def test_sizes_styles_and_variations(self):
         self.assertEqual(visuals.SIZES, {"vertical": "1024x1536", "square": "1024x1024", "wide": "1536x1024"})
         self.assertEqual(sorted(visuals.STYLES), ["illustration", "lifestyle", "minimal", "product"])
-        self.assertEqual(len(visuals.VARIATIONS), 8)
+        self.assertEqual(len(visuals.VARIATIONS), 24)
 
     def test_quick_prompt_parts(self):
         text = visuals.quick_prompt("  A cup of coffee  ", "minimal", 1)
@@ -396,6 +396,71 @@ class CaptionTests(unittest.TestCase):
         self.assertNotIn("No text", text)
         self.assertIn("Sale", text)
         self.assertIn("No text", visuals.modify_prompt("socks", "інше світло"))
+
+
+class ChainedModifyPromptTests(unittest.TestCase):
+    ORIGINAL = 'Socks on a floor, підпис «Стара назва»'
+
+    def test_the_parent_change_is_given_as_context(self):
+        text = visuals.modify_prompt(self.ORIGINAL, "інше світло", 0, None, parent_change="evening light", chained=True)
+        self.assertIn("The provided image is already a modified version: evening light", text)
+        self.assertIn("інше світло", text)
+
+    def test_the_old_caption_is_not_resurrected(self):
+        text = visuals.modify_prompt(self.ORIGINAL, "інше світло", 0, None, parent_change="без підпису", chained=True)
+        self.assertNotIn("Стара назва", text)
+        self.assertNotIn("Include the text", text)
+        self.assertIn("keep any text that is already in the image", text.lower())
+
+    def test_a_new_caption_still_replaces_text(self):
+        text = visuals.modify_prompt(self.ORIGINAL, 'підпис «Нова»', 0, None, parent_change="x", chained=True)
+        self.assertIn('"Нова"', text)
+        self.assertNotIn("Стара назва", text)
+
+    def test_removing_text_is_honoured(self):
+        text = visuals.modify_prompt(self.ORIGINAL, "прибери текст", 0, None, parent_change="x", chained=True)
+        self.assertIn("No text", text)
+        self.assertNotIn("Стара назва", text)
+
+    def test_a_parent_without_a_change_is_still_marked_as_modified(self):
+        text = visuals.modify_prompt("socks", None, 1, None, parent_change=None, chained=True)
+        self.assertIn("already a modified version", text)
+        self.assertIn(visuals.VARIATIONS[1], text)
+
+    def test_unchained_prompts_are_unchanged(self):
+        self.assertNotIn("already a modified", visuals.modify_prompt("socks", "x"))
+
+
+class MarketTests(unittest.TestCase):
+    def test_markets_list(self):
+        self.assertEqual(list(visuals.MARKETS), ["us", "uk", "ca", "au", "de", "fr", "es"])
+        self.assertEqual([k for k, m in visuals.MARKETS.items() if m["status"] == "active"], ["us", "uk", "ca", "au"])
+        for m in visuals.MARKETS.values():
+            for field in ("name_uk", "name", "lang", "locale", "status", "notes"):
+                self.assertIn(field, m)
+        self.assertEqual(visuals.MARKETS["de"]["locale"], "de-DE")
+        self.assertIn("fr-CA", visuals.MARKETS["ca"]["notes"])
+
+    def test_localize_change_names_the_market_language_and_rules(self):
+        text = visuals.localize_change("de")
+        for part in ("Germany", "German", "de-DE", "setting", "composition", "no logos"):
+            self.assertIn(part.lower(), text.lower())
+        self.assertNotIn("No text", text)
+
+    def test_source_text_is_given_without_quote_marks(self):
+        text = visuals.localize_change("fr", "Sale")
+        self.assertIn("Sale", text)
+        self.assertNotIn("«", text)
+        self.assertNotIn('"', text)
+
+    def test_localized_prompt_never_resurrects_the_original_caption(self):
+        change = visuals.localize_change("de")
+        text = visuals.modify_prompt('Socks, підпис «Old»', change, 0, None, translate=True)
+        self.assertNotIn("Old", text)
+        self.assertIn("German", text)
+        with_source = visuals.modify_prompt('Socks, підпис «Old»', visuals.localize_change("de", "Old"), 0, None, translate=True)
+        self.assertIn("Old", with_source)  # given as the text to translate
+        self.assertNotIn("render only this text exactly", with_source)
 
 
 if __name__ == "__main__":
@@ -533,3 +598,22 @@ class OpenAIEditTests(unittest.TestCase):
         self.assertEqual(out.read_bytes(), PNG_MAGIC + b"demo")
         with self.assertRaises(visuals.VisualsUnavailable):
             visuals.NoImages().edit("x", self.src, out)
+
+
+class VariationHintTests(unittest.TestCase):
+    def test_there_are_at_least_24_distinct_short_hints(self):
+        self.assertGreaterEqual(len(set(visuals.VARIATIONS)), 24)
+        self.assertEqual(len(set(visuals.VARIATIONS)), len(visuals.VARIATIONS))
+        for hint in visuals.VARIATIONS:
+            self.assertLessEqual(len(hint), 60)
+
+    def test_24_consecutive_indices_give_24_different_prompts(self):
+        prompts = {visuals.modify_prompt("socks", None, i) for i in range(24)}
+        self.assertEqual(len(prompts), 24)
+        quick = {visuals.quick_prompt("socks", None, i) for i in range(24)}
+        self.assertEqual(len(quick), 24)
+
+    def test_the_index_wraps_safely(self):
+        n = len(visuals.VARIATIONS)
+        self.assertEqual(visuals.modify_prompt("socks", None, n + 3), visuals.modify_prompt("socks", None, 3))
+        self.assertEqual(visuals.modify_prompt("socks", None, 10**9) is not None, True)

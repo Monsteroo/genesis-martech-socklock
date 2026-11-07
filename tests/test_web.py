@@ -262,7 +262,7 @@ class QuickWebTests(HttpMixin, unittest.TestCase):
         self.assertEqual(status, 400)
 
     def test_gen_is_an_image_route_and_delete_needs_no_lock(self):
-        self.assertEqual(web.IMAGE_ROUTES, {"/api/gen", "/api/modify"})
+        self.assertEqual(web.IMAGE_ROUTES, {"/api/gen", "/api/modify", "/api/localize"})
         self.assertNotIn("/api/gallery/delete", web.IMAGE_ROUTES)
 
     def test_provider_errors_do_not_leak_and_release_the_slot(self):
@@ -526,6 +526,33 @@ class ModifyWebTests(HttpMixin, unittest.TestCase):
         status, text = self.request("GET", "/api/gallery?kind=original")
         self.assertEqual([m["id"] for m in json.loads(text)["data"]["items"]], [oid])
 
+    def test_modify_a_modification_and_filter_by_root(self):
+        _, orig = self.post("/api/gen", {"prompt": "Socks", "format": "square"})
+        oid = orig["data"]["id"]
+        _, m1 = self.post("/api/modify", {"parent": oid, "change": "evening light"})
+        _, m2 = self.post("/api/modify", {"parent": m1["data"]["id"], "change": "bigger"})
+        self.assertEqual((m2["data"]["parent"], m2["data"]["root"]), (m1["data"]["id"], oid))
+        status, text = self.request("GET", "/api/gallery?root=" + oid)
+        self.assertEqual(sorted(m["id"] for m in json.loads(text)["data"]["items"]),
+                         sorted([m1["data"]["id"], m2["data"]["id"]]))
+        status, _ = self.request("GET", "/api/gallery?root=../x")
+        self.assertEqual(status, 400)
+
+    def test_localize_over_http_and_config_markets(self):
+        _, orig = self.post("/api/gen", {"prompt": "Socks", "format": "square"})
+        oid = orig["data"]["id"]
+        status, loc = self.post("/api/localize", {"parent": oid, "market": "ca"})
+        self.assertEqual((status, loc["data"]["market"], loc["data"]["parent"]), (200, "ca", oid))
+        for body in ({"parent": oid, "market": "xx"}, {"parent": "../x", "market": "us"}, {"parent": oid}):
+            status, _ = self.post("/api/localize", body)
+            self.assertEqual(status, 400, body)
+        status, _ = self.request("POST", "/api/localize", {"parent": oid, "market": "us"})
+        self.assertEqual(status, 403)
+        _, cfg = self.request("GET", "/api/config")
+        markets = json.loads(cfg)["data"]["markets"]
+        self.assertEqual([m["key"] for m in markets], ["us", "uk", "ca", "au", "de", "fr", "es"])
+        self.assertEqual(sorted(markets[0]), ["key", "lang", "name", "name_uk", "status"])
+
     def test_modify_accepts_a_format_and_rejects_a_bad_one(self):
         _, orig = self.post("/api/gen", {"prompt": "Socks", "format": "wide"})
         oid = orig["data"]["id"]
@@ -554,13 +581,13 @@ class ModifyWebTests(HttpMixin, unittest.TestCase):
         status, data = self.post("/api/gen", {"prompt": "Socks", "parent": "g0000abcd", "variation": 1})
         self.assertEqual(status, 200)
         self.assertIsNone(data["data"]["parent"])
-        self.assertEqual(web.IMAGE_ROUTES, {"/api/gen", "/api/modify"})
+        self.assertEqual(web.IMAGE_ROUTES, {"/api/gen", "/api/modify", "/api/localize"})
 
     def test_removed_routes_and_pages_are_gone(self):
         for path in ("/workflow", "/api/originals", "/api/images?id=o001", "/api/image/o001/shot-1.png"):
             status, _ = self.request("GET", path, None, self.auth)
             self.assertEqual(status, 404, path)
-        for path in ("/api/pains", "/api/concepts", "/api/build", "/api/status", "/api/variants", "/api/localize",
+        for path in ("/api/pains", "/api/concepts", "/api/build", "/api/status", "/api/variants",
                      "/api/compose", "/api/image"):
             status, _ = self.request("POST", path, {}, self.auth)
             self.assertEqual(status, 404, path)

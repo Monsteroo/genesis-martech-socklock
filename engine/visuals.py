@@ -106,10 +106,68 @@ VARIATIONS = (
     "with a different color palette",
     "at a different time of day",
     "with a different composition",
+    "from a low angle",
+    "from a high angle, looking down",
+    "with a shallow depth of field",
+    "with soft window light",
+    "with warm golden-hour light",
+    "with cool morning light",
+    "in a different season",
+    "with a calmer mood",
+    "with a more playful mood",
+    "with a few different props nearby",
+    "in a different room",
+    "on a different surface",
+    "with a minimal clean background",
+    "with a more cluttered, lived-in setting",
+    "as a tight macro detail shot",
+    "from the side, in profile",
 )
 NO_TEXT_LINE = "No text, no logos, no watermarks."
+KEEP_TEXT_LINE = "Keep any text that is already in the image exactly as it is. Do not add new text, logos or watermarks."
 _QUOTED = re.compile(r"«([^»]{1,120})»|\"([^\"]{1,120})\"|“([^”]{1,120})”")
 _CAPTION_WORDS = ("підпис", "напис", "текст", "слоган", "caption", "text", "slogan", "headline")
+
+
+# Markets we sell in. This is the one list to edit: add, remove or re-order entries, nothing else changes.
+# status "active" = selling or testing now; "planned" = a suggestion, not a commitment.
+MARKETS = {
+    "us": {"name_uk": "США", "name": "United States", "lang": "English", "locale": "en-US", "status": "active",
+           "notes": "main market"},
+    "uk": {"name_uk": "Велика Британія", "name": "United Kingdom", "lang": "English", "locale": "en-GB", "status": "active",
+           "notes": "test market, British spelling"},
+    "ca": {"name_uk": "Канада", "name": "Canada", "lang": "English", "locale": "en-CA", "status": "active",
+           "notes": "bilingual market, Quebec uses fr-CA"},
+    "au": {"name_uk": "Австралія", "name": "Australia", "lang": "English", "locale": "en-AU", "status": "active",
+           "notes": "test market"},
+    "de": {"name_uk": "Німеччина", "name": "Germany", "lang": "German", "locale": "de-DE", "status": "planned",
+           "notes": "planned"},
+    "fr": {"name_uk": "Франція", "name": "France", "lang": "French", "locale": "fr-FR", "status": "planned",
+           "notes": "planned"},
+    "es": {"name_uk": "Іспанія", "name": "Spain", "lang": "Spanish", "locale": "es-ES", "status": "planned",
+           "notes": "planned"},
+}
+
+
+def localize_label(market_key):
+    return "Локалізація: " + MARKETS[market_key]["name_uk"]
+
+
+def quoted_texts(text):
+    return [next(g for g in m.groups() if g) for m in _QUOTED.finditer(text or "")]
+
+
+def localize_change(market_key, source_text=None):
+    """The edit instruction that adapts an image to a market. The source text is written without quote marks,
+    so the prompt builder does not force it to be rendered as is."""
+    m = MARKETS[market_key]
+    text = (f"Adapt the image for the {m['name']} market: translate any caption or text in the image into "
+            f"{m['lang']} ({m['locale']}) with local spelling and idioms, exactly spelled and legible, or keep the "
+            f"text unchanged if it is already in that language; adapt the setting, props, clothing and interior to "
+            f"feel typical for {m['name']}; keep the same subject, composition and format; no logos or watermarks")
+    if source_text:
+        text += f". The text to translate is: ‘{source_text}’"
+    return text
 
 
 def _text_rule(*sources):
@@ -154,13 +212,17 @@ def quick_prompt(prompt, style=None, variation=None):
     return "\n".join(parts)
 
 
-def modify_prompt(original_prompt, change=None, variation=0, new_size=None):
+def modify_prompt(original_prompt, change=None, variation=0, new_size=None, parent_change=None, chained=False,
+                  translate=False):
     if change and change.strip():
         action = (f"Modify the provided image: {change.strip()}. "
                   "Keep the main subject, the composition and the style unless the change says otherwise.")
     else:
         action = ("Create a new variation of the provided image, " + VARIATIONS[variation % len(VARIATIONS)]
                   + ". Keep the same subject and style.")
+    if chained:
+        was = parent_change.strip() if parent_change and parent_change.strip() else "a variation of the original idea"
+        action = f"The provided image is already a modified version: {was}.\n{action}"
     original = original_prompt.strip()
     lowered = (change or "").lower()
     if any(w in lowered for w in _NO_TEXT_WORDS):
@@ -172,6 +234,10 @@ def modify_prompt(original_prompt, change=None, variation=0, new_size=None):
                 "spelled correctly, large and legible: " + "; ".join('"%s"' % q for q in quoted)
                 + ". No other text, no logos, no watermarks.")
         original = _without_caption(original)
+    elif chained or translate:
+        # only the new change decides about text; the original caption may be long gone
+        original = _without_caption(original)
+        rule = _text_rule(change) if change and any(w in lowered for w in _CAPTION_WORDS) else KEEP_TEXT_LINE
     else:
         rule = _text_rule(change, original_prompt)
     if new_size:

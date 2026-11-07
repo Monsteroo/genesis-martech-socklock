@@ -88,10 +88,27 @@ class Engine:
                 raise missing
         except OSError:
             raise missing from None
-        return base_prompt, size, style, src
+        return base_prompt, size, style, src, meta
 
     def modify_image(self, parent=None, change="", variation=0, format=None):
-        base_prompt, size, style, src = self._parent_meta(parent)
+        return self._modify(parent, change, variation, format)
+
+    def localize_image(self, parent=None, market=None, format=None):
+        if not (isinstance(market, str) and market in visuals.MARKETS):
+            raise LibraryError("Невідомий ринок.")
+        return self._modify(parent, "", 0, format, market)
+
+    def _modify(self, parent, change, variation, format, market=None):
+        base_prompt, size, style, src, parent_meta = self._parent_meta(parent)
+        chained = parent_meta.get("kind") == "modification" or isinstance(parent_meta.get("parent"), str)
+        if chained:
+            top = parent_meta.get("root")
+            root = top if isinstance(top, str) and galleries._ID.fullmatch(top) else parent_meta.get("parent")
+        else:
+            root = parent
+        parent_change = parent_meta.get("change")
+        if not (isinstance(parent_change, str) and len(parent_change) <= MAX_CHANGE):
+            parent_change = None
         if change is None:
             change = ""
         if not isinstance(change, str) or len(change) > MAX_CHANGE:
@@ -105,16 +122,26 @@ class Engine:
                 raise LibraryError(f"Невідомий формат. Доступні: {', '.join(visuals.SIZES)}")
             if visuals.SIZES[format] != size:
                 size = new_size = visuals.SIZES[format]
-        final = visuals.modify_prompt(base_prompt, change, variation, new_size)
+        if market:
+            # the caption that is in the image now: the parent's own quoted caption, else the original's
+            lowered = (parent_change or "").lower()
+            quoted = visuals.quoted_texts(parent_change) if chained else []
+            if not quoted and not any(w in lowered for w in visuals._NO_TEXT_WORDS):
+                quoted = visuals.quoted_texts(base_prompt)
+            final = visuals.modify_prompt(base_prompt, visuals.localize_change(market, "; ".join(quoted) or None),
+                                          0, new_size, parent_change, chained, translate=True)
+            change = visuals.localize_label(market)
+        else:
+            final = visuals.modify_prompt(base_prompt, change, variation, new_size, parent_change, chained)
 
         def make(dest):
             self.images.edit(final, src, dest, size=size)
 
         return self._store(make, prompt=base_prompt, size=size, parent=parent, style=style,
-                                kind="modification", change=change)
+                                kind="modification", change=change, root=root, market=market)
 
-    def list_gallery(self, kind=None, parent=None):
-        return {"items": self.gallery.find(kind=kind, parent=parent)}
+    def list_gallery(self, kind=None, parent=None, root=None):
+        return {"items": self.gallery.find(kind=kind, parent=parent, root=root)}
 
     def delete_gallery(self, ids):
         if not isinstance(ids, list):

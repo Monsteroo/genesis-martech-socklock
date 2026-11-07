@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from engine import visuals
 from engine.library import LibraryError
 from engine.llm import LLMError
 
@@ -17,10 +18,11 @@ GALLERY_PNG = re.compile(r"/api/g/(g[0-9a-f]{8})\.png")
 ROUTES = {
     "/api/gen": lambda e, b: e.quick_image(b.get("prompt", ""), b.get("format") or "vertical", b.get("style")),
     "/api/modify": lambda e, b: e.modify_image(b.get("parent"), b.get("change", ""), b.get("variation", 0), b.get("format")),
+    "/api/localize": lambda e, b: e.localize_image(b.get("parent"), b.get("market"), b.get("format")),
     "/api/gallery/delete": lambda e, b: e.delete_gallery(b["ids"]),
 }
 
-IMAGE_ROUTES = {"/api/gen", "/api/modify"}
+IMAGE_ROUTES = {"/api/gen", "/api/modify", "/api/localize"}
 NO_LOCK_ROUTES = {"/api/gallery/delete"}
 IMAGE_QUEUE_TIMEOUT = 600
 
@@ -108,11 +110,14 @@ def make_server(engine, port=8780, image_workers=None):
                     "provider": getattr(images, "name", ""),
                     "image_model": getattr(images, "model", ""),
                     "price_usd": _price_from_env(),
+                    "markets": [{"key": k, **{f: m[f] for f in ("name_uk", "name", "lang", "status")}}
+                                for k, m in visuals.MARKETS.items()],
                 }})
             if url.path == "/api/gallery":
                 query = parse_qs(url.query)
                 try:
-                    data = engine.list_gallery(query.get("kind", [None])[0], query.get("parent", [None])[0])
+                    data = engine.list_gallery(query.get("kind", [None])[0], query.get("parent", [None])[0],
+                                               query.get("root", [None])[0])
                 except LibraryError as exc:
                     return self._json(400, {"ok": False, "error": str(exc)})
                 return self._json(200, {"ok": True, "data": data})

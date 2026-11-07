@@ -16,13 +16,13 @@ class GalleryTests(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp()) / "gallery"
         self.g = gallery.Gallery(self.root)
 
-    def put(self, prompt="p", created=None, parent=None, png=True, kind="original", change=None):
+    def put(self, prompt="p", created=None, parent=None, png=True, kind="original", change=None, root=None):
         gid = gallery.new_id()
         self.root.mkdir(parents=True, exist_ok=True)
         if png:
             self.g.path(gid).write_bytes(b"png-" + gid.encode())
         self.g.add(gid, prompt, "1024x1536", parent=parent, style="product", created=created,
-                   kind=kind, change=change)
+                   kind=kind, change=change, root=root)
         return gid
 
     def test_new_ids_have_the_right_shape_and_are_unique(self):
@@ -154,7 +154,7 @@ class GalleryTests(unittest.TestCase):
         meta = json.loads(self.g.meta_path(gid).read_text(encoding="utf-8"))
         meta["secret"] = "x"
         self.g.meta_path(gid).write_text(json.dumps(meta), encoding="utf-8")
-        self.assertEqual(sorted(self.g.find()[0]), ["change", "created", "id", "kind", "parent", "prompt", "size", "style"])
+        self.assertEqual(sorted(self.g.find()[0]), ["change", "created", "id", "kind", "market", "parent", "prompt", "root", "size", "style"])
 
     def test_find_order_is_deterministic_on_equal_created(self):
         ids = [self.put(str(i), created=5.0) for i in range(5)]
@@ -228,6 +228,24 @@ class GalleryTests(unittest.TestCase):
         items = self.g.find()
         self.assertEqual([m["id"] for m in items], [gid])
         self.assertEqual((items[0]["parent"], items[0]["style"], items[0]["size"]), (None, None, "1024x1024"))
+
+    def test_find_filters_by_root(self):
+        a = self.put("a", created=1.0)
+        m1 = self.put("m1", created=2.0, parent=a, kind="modification", root=a)
+        m2 = self.put("m2", created=3.0, parent=m1, kind="modification", root=a)
+        other = self.put("o", created=4.0)
+        self.put("om", created=5.0, parent=other, kind="modification", root=other)
+        self.assertEqual([m["id"] for m in self.g.find(root=a)], [m2, m1])
+        self.assertEqual(self.g.find(root=a)[0]["root"], a)
+        self.assertIsNone(self.g.find(kind="original")[0]["root"])
+        with self.assertRaises(LibraryError):
+            self.g.find(root="../x")
+
+    def test_old_modifications_without_root_count_their_parent_as_root(self):
+        a = self.put("a", created=1.0)
+        m = self.put("m", created=2.0, parent=a, kind="modification")
+        self.assertEqual([i["id"] for i in self.g.find(root=a)], [m])
+        self.assertEqual(self.g.find(root=a)[0]["root"], a)
 
 
 if __name__ == "__main__":

@@ -488,6 +488,101 @@ class ModifyImageTests(unittest.TestCase):
         self.engine.delete_gallery([self.original["id"]])
         self.assertEqual([i["id"] for i in self.engine.list_gallery("modification")["items"]], [m["id"]])
 
+    def test_originals_have_no_root_and_children_point_to_the_original(self):
+        self.assertIsNone(self.original.get("root"))
+        m1 = self.engine.modify_image(self.original["id"], "evening light", 0)
+        self.assertEqual(m1["root"], self.original["id"])
+
+    def test_a_modification_of_a_modification_keeps_the_top_root(self):
+        m1 = self.engine.modify_image(self.original["id"], "evening light", 0, "square")
+        m2 = self.engine.modify_image(m1["id"], "добавь підпис «Hi»", 0)
+        m3 = self.engine.modify_image(m2["id"], "x", 0)
+        self.assertEqual((m2["parent"], m2["root"]), (m1["id"], self.original["id"]))
+        self.assertEqual((m3["parent"], m3["root"]), (m2["id"], self.original["id"]))
+        self.assertEqual(m2["size"], m1["size"])  # size inherited from the parent modification
+        ids = [i["id"] for i in self.engine.list_gallery(root=self.original["id"])["items"]]
+        self.assertEqual(sorted(ids), sorted([m1["id"], m2["id"], m3["id"]]))
+
+    def test_chained_edit_uses_the_parent_image_and_change(self):
+        m1 = self.engine.modify_image(self.original["id"], "evening light", 0)
+        self.engine.modify_image(m1["id"], "bigger socks", 0)
+        prompt, src, _ = self.fake.edits[1]
+        self.assertTrue(src.endswith(f"{m1['id']}.png"))
+        self.assertIn("already a modified version: evening light", prompt)
+        self.assertIn("bigger socks", prompt)
+
+    def test_chained_edit_does_not_resurrect_the_original_caption(self):
+        orig = self.engine.quick_image('Socks, підпис «Стара назва»', "wide")
+        m1 = self.engine.modify_image(orig["id"], "без підпису", 0)
+        self.engine.modify_image(m1["id"], "інше світло", 0)
+        self.assertNotIn("Стара назва", self.fake.edits[1][0])
+
+    def test_chained_edit_keeps_the_safety_checks(self):
+        m1 = self.engine.modify_image(self.original["id"], "x", 0)
+        with self.assertRaises(LibraryError):
+            self.engine.modify_image(m1["id"], "c" * 301, 0)
+        (self.root / "library" / "gallery" / f"{m1['id']}.png").unlink()
+        with self.assertRaises(LibraryError):
+            self.engine.modify_image(m1["id"], "x", 0)
+
+    def test_deleting_a_middle_modification_keeps_its_children(self):
+        m1 = self.engine.modify_image(self.original["id"], "x", 0)
+        m2 = self.engine.modify_image(m1["id"], "y", 0)
+        self.engine.delete_gallery([m1["id"]])
+        items = self.engine.list_gallery(root=self.original["id"])["items"]
+        self.assertEqual([(i["id"], i["root"]) for i in items], [(m2["id"], self.original["id"])])
+
+
+class LocalizeImageTests(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.fake = FakeImages()
+        self.engine = Engine(self.root, FakeLLM(), images=self.fake)
+        self.original = self.engine.quick_image('Socks on a floor, підпис «Sale»', "wide")
+
+    def test_localizing_an_original(self):
+        meta = self.engine.localize_image(self.original["id"], "de")
+        self.assertEqual((meta["kind"], meta["parent"], meta["root"], meta["market"]),
+                         ("modification", self.original["id"], self.original["id"], "de"))
+        self.assertEqual(meta["change"], "Локалізація: Німеччина")
+        prompt, src, size = self.fake.edits[0]
+        self.assertTrue(src.endswith(self.original["id"] + ".png"))
+        self.assertIn("German (de-DE)", prompt)
+        self.assertIn("Sale", prompt)           # the source text to translate
+        self.assertNotIn("render only this text exactly", prompt)
+        self.assertEqual(size, "1536x1024")
+
+    def test_localizing_a_modification_keeps_the_root_and_the_latest_caption(self):
+        m1 = self.engine.modify_image(self.original["id"], "замінити підпис на «New»", 0)
+        loc = self.engine.localize_image(m1["id"], "fr", "square")
+        self.assertEqual((loc["parent"], loc["root"], loc["size"]), (m1["id"], self.original["id"], "1024x1024"))
+        prompt = self.fake.edits[1][0]
+        self.assertIn("New", prompt)
+        self.assertNotIn("Sale", prompt)
+        self.assertIn("already a modified version", prompt)
+
+    def test_a_removed_caption_is_not_resurrected(self):
+        m1 = self.engine.modify_image(self.original["id"], "без підпису", 0)
+        self.engine.localize_image(m1["id"], "es")
+        self.assertNotIn("Sale", self.fake.edits[1][0])
+
+    def test_bad_market_or_parent_is_rejected_without_a_provider_call(self):
+        for market in ("xx", "", None, 5, ["us"], "../x"):
+            with self.assertRaises(LibraryError):
+                self.engine.localize_image(self.original["id"], market)
+        for parent in (None, "../x", "g00000000"):
+            with self.assertRaises(LibraryError):
+                self.engine.localize_image(parent, "us")
+        with self.assertRaises(LibraryError):
+            self.engine.localize_image(self.original["id"], "us", "huge")
+        self.assertEqual(self.fake.edits, [])
+
+    def test_the_market_survives_in_the_gallery_listing(self):
+        loc = self.engine.localize_image(self.original["id"], "uk")
+        items = self.engine.list_gallery(root=self.original["id"])["items"]
+        self.assertEqual([(i["id"], i["market"]) for i in items], [(loc["id"], "uk")])
+        self.assertIsNone(self.engine.list_gallery(kind="original")["items"][0]["market"])
+
 
 if __name__ == "__main__":
     unittest.main()

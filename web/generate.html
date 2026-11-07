@@ -73,7 +73,9 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
 .subtab[aria-selected="true"]{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc)}
 .subtab .count{margin-left:0}
 .sublabel{flex:1 1 auto;min-width:0;word-break:break-word}
-.subpanel.gone .again{display:none}
+.subpanel.gone .againbox{display:none}
+.againbox{display:inline-flex;gap:4px;align-items:center}
+.acts select{font-size:13px;padding:4px 6px}
 .section{margin-top:18px}
 .section h3{font-size:15px;margin:0 0 4px}
 .fmt{text-align:left}
@@ -81,6 +83,19 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
 .gthumb{flex:0 0 40px;width:40px;height:40px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--card);display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:11px;text-align:center}
 .gthumb img{width:100%;height:100%;object-fit:cover;display:block}
 .clip{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.locpanel{border-top:1px solid var(--line);padding-top:8px;display:flex;flex-direction:column;gap:6px;text-align:left}
+.locpanel fieldset{border:0;margin:0;padding:0;min-width:0}
+.locpanel legend{font-size:13px;font-weight:600;padding:0}
+.mkrow{display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:14px;padding:3px 0;cursor:pointer}
+.mkrow input{width:18px;height:18px;margin:0;accent-color:var(--sel)}
+.tag{padding:0 6px;border:1px solid var(--edge);border-radius:999px;color:var(--mut);font-size:11px}
+.locpanel .link{align-self:flex-start;background:none;border:0;color:var(--acc);text-decoration:underline;font:inherit;font-size:13px;padding:2px 0;cursor:pointer}
+.locpanel .go2{border:0;border-radius:8px;background:var(--acc);color:var(--acc-fg);font:inherit;font-size:14px;font-weight:600;padding:8px 12px;cursor:pointer}
+#locslot .locpanel{border:1px solid var(--line);border-radius:12px;padding:10px;margin:6px 0;background:var(--card)}
+.beta{margin-left:8px;padding:1px 8px;border-radius:999px;border:1px solid var(--edge);color:var(--mut);font-size:12px;font-weight:600}
+#abanner{background:#fff3cd;color:#5c4400;border:1px solid #ecd38a;border-radius:10px;padding:12px 14px;margin:0 0 12px;font-weight:600}
+@media (prefers-color-scheme:dark){#abanner{background:#3a3120;color:#f2dc9d;border-color:#6b5a2a}}
+@media (max-width:480px){.tabs{gap:0}.tabs button{flex:1 1 auto;min-width:0;padding:10px 4px;font-size:14px}.tabs .count{margin-left:4px;min-width:18px;padding:0 5px}.beta{display:block;margin:0;padding:0 6px;font-size:11px}}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -92,6 +107,7 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
   <div class="tabs" role="tablist" aria-label="Розділи">
     <button type="button" role="tab" id="tab-originals" aria-controls="p-originals">Оригінали<span class="count" id="c-originals">0</span><span class="flag" id="f-originals" hidden></span></button>
     <button type="button" role="tab" id="tab-modifications" aria-controls="p-modifications">Модифікації<span class="count" id="c-modifications">0</span><span class="flag" id="f-modifications" hidden></span></button>
+    <button type="button" role="tab" id="tab-animation" aria-controls="p-animation">Анімація<span class="beta">у розробці</span></button>
   </div>
 
   <section id="p-originals" role="tabpanel" aria-labelledby="tab-originals">
@@ -126,7 +142,8 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
       <button type="button" class="plain" id="toorig">До оригіналів</button>
     </div>
     <div id="modform">
-      <div class="links"><button id="pickall" type="button">Вибрати всі</button></div>
+      <div class="links"><button id="pickall" type="button">Вибрати всі</button><button id="locsel" type="button" aria-expanded="false">Локалізувати вибране</button></div>
+      <div id="locslot"></div>
       <div id="strip" class="strip" role="group" aria-label="Оригінали для зміни"></div>
       <button id="smore" class="more" type="button" hidden>Показати ще</button>
 
@@ -152,6 +169,31 @@ select{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line)
     <div id="subpanels"></div>
     <button id="gmore" class="more" type="button" hidden>Показати ще</button>
   </section>
+
+  <section id="p-animation" role="tabpanel" aria-labelledby="tab-animation" hidden>
+    <div id="abanner" role="status">Ця вкладка ще в розробці: анімація поки не працює. Інтерфейс уже готовий — генерація з'явиться згодом.</div>
+    <h2>1. Оберіть зображення</h2>
+    <div id="anoorig" class="mut" hidden>Створіть оригінали у вкладці «Оригінали».</div>
+    <div class="links"><button id="apickall" type="button">Вибрати всі</button></div>
+    <div id="amsg" class="mut" role="status" aria-live="polite"></div>
+    <div id="astrip" class="strip" role="group" aria-label="Зображення для анімації"></div>
+    <button id="asmore" class="more" type="button" hidden>Показати ще</button>
+
+    <h2>2. Яку анімацію? <span class="mut">(необов'язково)</span></h2>
+    <input type="text" id="aprompt" maxlength="300" aria-label="Яку анімацію" placeholder="Наприклад: повільний наїзд камери, шкарпетки злегка гойдаються">
+    <div id="achips" class="chips" role="group" aria-label="Швидкі підказки"></div>
+    <div class="row"><label class="lbl" for="adur">Тривалість</label>
+      <select id="adur"><option value="3">3 с</option><option value="5" selected>5 с</option><option value="10">10 с</option></select></div>
+    <div class="row"><label class="lbl" for="aformat">Формат</label>
+      <select id="aformat">
+        <option value="" selected>Як в оригіналі</option>
+        <option value="vertical">Вертикальний</option>
+        <option value="square">Квадрат</option>
+        <option value="wide">Широкий</option>
+      </select></div>
+    <div class="row"><button id="ago" class="go" type="button" aria-disabled="true" aria-describedby="ahint">Створити анімацію</button><span id="ahint" class="mut">У розробці — скоро буде</span></div>
+    <div class="mut">Тут з'являться анімації вибраних зображень.</div>
+  </section>
 </main>
 
 <div id="bar" class="bar" hidden>
@@ -174,7 +216,8 @@ const SECTIONS_PAGE = 5; // sections per original on first open
 const SUBS_PAGE = 8;    // sub-tabs shown at first
 const MAX_BATCH = 24;   // most images one click may start
 const CHIPS = ["інше світло", "інший ракурс", "інший фон", "інші кольори", "ближче", "ширше", "додай підпис «Пара завжди разом»", "замінити підпис на «…»", "без підпису", "для зими", "для літа", "інша модель", "в руці"];
-const TABS = { originals: "Оригінали", modifications: "Модифікації" };
+const TABS = { originals: "Оригінали", modifications: "Модифікації", animation: "Анімація" };
+const ANIM_CHIPS = ["повільний наїзд", "відʼїзд", "паралакс", "легкий рух тканини", "плавний поворот", "мерехтіння світла"];
 
 const $ = (id) => document.getElementById(id);
 const h = (tag, props, ...kids) => {
@@ -275,7 +318,7 @@ function release(entry) {
 }
 
 /* ---------- queues: generation (CONFIG.workers) and gallery loading (3) never wait on each other ---------- */
-let CONFIG = { workers: 4, price_usd: null };
+let CONFIG = { workers: 4, price_usd: null, markets: [] };
 
 function makeQueue(limit) {
   const waiting = [];
@@ -319,7 +362,7 @@ function coolDown(lock) {
   setTimeout(() => lock("cool", false), 1500);
 }
 
-// The one gate for every start of modifications (button, Enter, «Ще 4 такі ж»): banner, cooldown, batch cap.
+// The one gate for every start of modifications (button, Enter, «Ще схожі»): banner, cooldown, batch cap.
 function startGuard(n) {
   if (modLocks.startup || modLocks.key || modLocks.cool || n < 1 || n > MAX_BATCH) return false;
   coolDown(lockMod);
@@ -327,7 +370,9 @@ function startGuard(n) {
 }
 
 /* ---------- options ---------- */
-const state = { count: 4, format: "vertical", style: "", mcount: 2 };
+const COUNTS = [1, 2, 4, 8, 12, 24];   // never above MAX_BATCH
+const state = { count: 4, format: "vertical", style: "", mcount: 4, again: 4 };
+try { const saved = Number(localStorage.getItem("againCount")); if (COUNTS.includes(saved)) state.again = saved; } catch (e) { /* storage may be blocked */ }
 
 function segmented(id, key, options, onChange) {
   const buttons = options.map(([value, label]) => {
@@ -354,7 +399,7 @@ function updateLabels() {
   const over = total > MAX_BATCH;
   $("mgo").textContent = n ? "Створити " + total + " " + images(total) : "Створити зображення";
   $("mhint").className = over ? "bad" : "mut";
-  $("mhint").textContent = !n ? "Виберіть хоча б один оригінал."
+  $("mhint").textContent = !n ? "Виберіть хоча б одне зображення."
     : over ? "Забагато: максимум " + MAX_BATCH + " за раз. Виберіть менше оригіналів або кількість."
     : costText(total);
   $("pickall").textContent = n ? "Зняти" : "Вибрати всі";
@@ -362,11 +407,11 @@ function updateLabels() {
   lockMod("over", over);
 }
 
-segmented("count", "count", [[1, "1"], [2, "2"], [4, "4"], [6, "6"]], updateLabels);
+segmented("count", "count", COUNTS.map((n) => [n, String(n)]), updateLabels);
 segmented("format", "format", [["vertical", "Вертикальне"], ["square", "Квадрат"], ["wide", "Горизонтальне"]]);
 segmented("style", "style", [["", "Без стилю"], ["product", "Фото продукту"], ["lifestyle", "Життя"],
   ["illustration", "Ілюстрація"], ["minimal", "Мінімалізм"]]);
-segmented("mcount", "mcount", [[1, "1"], [2, "2"], [4, "4"]], updateLabels);
+segmented("mcount", "mcount", COUNTS.map((n) => [n, String(n)]), updateLabels);
 
 for (const b of document.querySelectorAll("#examples button")) {
   b.addEventListener("click", () => { $("prompt").value = b.dataset.t; $("prompt").focus(); });
@@ -386,6 +431,79 @@ for (const text of CHIPS) {
   $("chips").append(b);
 }
 
+// «Анімація» is a placeholder: its chips only fill the field, the start button does nothing and sends nothing.
+for (const text of ANIM_CHIPS) {
+  const b = h("button", { type: "button" }, text);
+  b.addEventListener("click", () => {
+    const parts = $("aprompt").value.split(",").map((x) => x.trim()).filter(Boolean);
+    if (parts.includes(text)) return;
+    const joined = [...parts, text].join(", ");
+    if (joined.length <= $("aprompt").maxLength) $("aprompt").value = joined;
+  });
+  $("achips").append(b);
+}
+
+/* ---------- localization panel: markets to pick, used by tiles and by the chooser of «Модифікації» ---------- */
+const locWord = (n) => (n % 10 === 1 && n % 100 !== 11) ? "локалізацію"
+  : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14)) ? "локалізації" : "локалізацій";
+const marketOf = (key) => (CONFIG.markets || []).find((m) => m.key === key);
+const marketLabel = (key) => "Локалізація: " + ((marketOf(key) || {}).name_uk || key);
+const panels = new Set();
+
+// opts: sources() -> image ids, onStart(payloads), onClose() (optional)
+function makePanel(opts) {
+  const markets = Array.isArray(CONFIG.markets) ? CONFIG.markets : [];
+  const boxes = new Map();
+  const msg = h("div", { className: "mut small" });
+  msg.setAttribute("role", "status");
+  msg.setAttribute("aria-live", "polite");
+  const go = h("button", { type: "button", className: "go2" }, "Створити локалізації");
+  const el = h("div", { className: "locpanel" });
+  const panel = { el, boxes };
+
+  const group = (title, list) => {
+    const fs = h("fieldset", {}, h("legend", {}, title));
+    for (const m of list) {
+      const box = h("input", { type: "checkbox" });
+      box.addEventListener("change", () => panel.update());
+      boxes.set(m.key, box);
+      fs.append(h("label", { className: "mkrow" }, box, m.name_uk, ...(m.status === "planned" ? [h("span", { className: "tag" }, "планується")] : [])));
+    }
+    return fs;
+  };
+  const active = markets.filter((m) => m.status !== "planned");
+  const planned = markets.filter((m) => m.status === "planned");
+  const all = h("button", { type: "button", className: "link" }, "Усі активні");
+  all.addEventListener("click", () => { active.forEach((m) => { boxes.get(m.key).checked = true; }); panel.update(); });
+  el.append(group("Працюємо зараз", active), all);
+  if (planned.length) el.append(group("Плануємо", planned));
+  el.append(go, msg);
+
+  panel.update = () => {
+    const picked = [...boxes].filter(([, b]) => b.checked).map(([k]) => k);
+    const sources = opts.sources();
+    const n = sources.length * picked.length;
+    const over = n > MAX_BATCH;
+    go.textContent = n ? "Створити " + n + " " + locWord(n) : "Створити локалізації";
+    msg.className = (over ? "bad" : "mut") + " small";
+    msg.textContent = !sources.length ? "Виберіть хоча б одне зображення." : !picked.length ? "Оберіть хоча б один ринок."
+      : over ? "Забагато: максимум " + MAX_BATCH + " за раз. Оберіть менше ринків або зображень." : costText(n);
+    setBusy(go, n === 0 || over || modLocks.startup || modLocks.key);
+  };
+  go.addEventListener("click", () => {
+    if (isBusy(go)) return;
+    const picked = [...boxes].filter(([, b]) => b.checked).map(([k]) => k);
+    const payloads = [];
+    for (const parent of opts.sources()) for (const market of picked) payloads.push({ parent, market });
+    if (!startGuard(payloads.length)) { msg.textContent = "Зачекайте секунду й спробуйте ще раз."; return; }
+    opts.onStart(payloads);
+  });
+  panel.close = () => { panels.delete(panel); el.remove(); if (opts.onClose) opts.onClose(); };
+  panels.add(panel);
+  panel.update();
+  return panel;
+}
+
 /* ---------- data and tabs ---------- */
 const store = { originals: [], mods: [] };   // metadata, newest first: the source of the counters
 const originalIds = new Set();
@@ -396,8 +514,11 @@ let active = null;
 const tiles = new Set();
 
 const isGone = (id) => ready && !originalIds.has(id);
+const isMod = (meta) => meta.kind === "modification";
+const rootOf = (meta) => meta.root || meta.parent;   // the top original of a modification
+const findMeta = (id) => store.originals.find((m) => m.id === id) || store.mods.find((m) => m.id === id);
 const TAB_OF = { original: "originals", modification: "modifications" };
-const chosen = () => [...tiles].filter((t) => t.role === "chooser" && t.picked());
+const chosen = () => stripMods.chosen();
 const barPicked = () => [...tiles].filter((t) => t.tab === active && t.picked());
 
 // Running / failed generations of a tab, so a problem in the hidden tab is not silent.
@@ -416,6 +537,7 @@ function updateChrome() {
   $("n").textContent = n;
   const counts = { originals: store.originals.length, modifications: store.mods.length };
   for (const name of Object.keys(TABS)) {
+    if (name === "animation") continue;   // a placeholder: no counters
     $("c-" + name).textContent = counts[name];
     const { busy, failed } = jobs(name);
     const flag = $("f-" + name);
@@ -431,10 +553,14 @@ function updateChrome() {
   $("modform").hidden = !ready || store.originals.length === 0;
   $("mempty").hidden = !modsBuilt || subs.size > 0 || store.originals.length === 0;
   $("more").hidden = origRest.length === 0;
-  $("smore").hidden = stripRest.length === 0;
+  $("smore").hidden = stripMods.rest.length === 0;
+  $("asmore").hidden = stripAnim.rest.length === 0;
+  $("anoorig").hidden = !ready || store.originals.length > 0;
+  $("apickall").textContent = stripAnim.chosen().length ? "Зняти" : "Вибрати всі";
   syncSubs();
   renderSubTabs();
   updateLabels();
+  for (const p of panels) { if (p.el.isConnected) p.update(); else panels.delete(p); }
 }
 
 function clearPicks() {
@@ -461,8 +587,9 @@ function showTab(name, pickId, focus) {
   history.replaceState(null, "", "#" + name + (name === "modifications" && selectedSub ? "/" + selectedSub : ""));
   if (changed) clearPicks();
   if (name === "modifications") buildMods();
+  if (name === "animation") buildAnim();
   if (pickId) {
-    pickOriginal(pickId);
+    stripMods.pick(pickId);
     $("change").focus();
     $("change").scrollIntoView({ block: "nearest" });
   } else if (focus && changed) {
@@ -475,15 +602,16 @@ for (const id of Object.keys(TABS)) {
   $("tab-" + id).addEventListener("click", () => showTab(id, undefined, true));
   $("tab-" + id).addEventListener("keydown", (e) => {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    const other = id === "originals" ? "modifications" : "originals";
+    const names = Object.keys(TABS);
+    const other = names[(names.indexOf(id) + (e.key === "ArrowRight" ? 1 : names.length - 1)) % names.length];
     showTab(other);
     $("tab-" + other).focus();
   });
 }
 $("toorig").addEventListener("click", () => showTab("originals", undefined, true));
 function parseHash() {
-  const m = /^#(originals|modifications)(?:\/(g[0-9a-f]{8}))?$/.exec(location.hash);
-  return { tab: m && m[1] === "modifications" ? "modifications" : "originals", sub: (m && m[2]) || null };
+  const m = /^#(originals|modifications|animation)(?:\/(g[0-9a-f]{8}))?$/.exec(location.hash);
+  return { tab: m ? m[1] : "originals", sub: (m && m[2]) || null };
 }
 addEventListener("hashchange", () => {
   const { tab, sub } = parseHash();
@@ -500,7 +628,7 @@ function makeTile(opts) {
   const body = h("div", { className: "body" });
   const el = h("div", { className: "tile" + (role === "chooser" ? " chooser" : "") }, body);
   const tile = { el, role, tab: TAB_OF[role] || "", meta: opts.meta || null, blob: null, url: null, lease: null, timer: null,
-    dead: false, pickEl: null, group: opts.group || null, fresh: !opts.meta, state: "busy",
+    dead: false, pickEl: null, group: opts.group || null, target: opts.target || "", fresh: !opts.meta, state: "busy",
     picked: () => false, setPicked: () => {} };
 
   const stopTimer = () => { clearInterval(tile.timer); tile.timer = null; };
@@ -541,9 +669,9 @@ function makeTile(opts) {
   tile.addPick = () => {
     if (tile.pickEl) return;
     const meta = tile.meta;
-    const what = short((role === "modification" && meta.change) || meta.prompt);
+    const what = short((isMod(meta) && meta.change) || meta.prompt);
     const box = h("input", { type: "checkbox", className: "pick" });
-    box.setAttribute("aria-label", (role === "chooser" ? "Вибрати оригінал" : "Вибрати зображення") + (what ? ": " + what : ""));
+    box.setAttribute("aria-label", (role === "chooser" ? (isMod(meta) ? "Вибрати модифікацію" : "Вибрати оригінал") : "Вибрати зображення") + (what ? ": " + what : ""));
     box.addEventListener("change", () => { el.classList.toggle("sel", box.checked); barNote(); updateChrome(); });
     tile.pickEl = box;
     tile.picked = () => box.checked;
@@ -555,18 +683,43 @@ function makeTile(opts) {
     const dl = h("button", { type: "button" }, "Завантажити");
     dl.addEventListener("click", () => save(tile.blob, tile.meta.id + ".png"));
     const extra = h("button", { type: "button", className: role === "original" ? "" : "again" },
-      role === "original" ? "Змінити →" : "Ще 4 такі ж");
-    if (role === "modification") extra.title = "4 нові зображення" + (CONFIG.price_usd ? ", ≈ $" + (CONFIG.price_usd * 4).toFixed(2) : "");
+      role === "original" ? "Змінити →" : "Ще схожі");
+    const num = h("select", { className: "again" }, ...COUNTS.map((n) => h("option", { value: String(n), selected: n === state.again }, String(n))));
+    num.setAttribute("aria-label", "Скільки схожих");
+    num.addEventListener("change", () => {
+      state.again = Number(num.value);
+      try { localStorage.setItem("againCount", String(state.again)); } catch (e) { /* ignore */ }
+      extra.title = againTitle();
+    });
+    const againTitle = () => state.again + " нових " + images(state.again) + (CONFIG.price_usd ? ", ≈ $" + (CONFIG.price_usd * state.again).toFixed(2) : "");
+    const change = role === "modification" ? h("button", { type: "button" }, "Змінити →") : null;
+    if (change) change.addEventListener("click", () => showTab("modifications", tile.meta.id));
+    if (role === "modification") extra.title = againTitle();
     extra.addEventListener("click", () => {
       if (role === "original") return showTab("modifications", tile.meta.id);
-      if (!startGuard(4)) return;
+      const count = Number(num.value);
+      if (!startGuard(count)) return;
       const { parent, change, size } = tile.meta;
       // Different variation numbers on every click, counting jobs still running. The same format as this tile.
       const used = store.mods.filter((m) => m.parent === parent).length + [...tile.group.members].filter((t) => !t.meta).length;
-      generateMods([0, 1, 2, 3].map((i) => ({ parent, change: change || "", variation: used + i,
+      generateMods(Array.from({ length: count }, (_, i) => ({ parent, change: change || "", variation: used + i,
         ...(SIZE_FORMAT[size] ? { format: SIZE_FORMAT[size] } : {}) })));
     });
-    return h("div", { className: "acts" }, extra, dl);
+    const again = h("span", { className: "againbox" }, extra, num);
+    if (role === "modification" && tile.meta.market) again.hidden = true;   // a localization has no «same again»
+    const loc = h("button", { type: "button" }, "Локалізувати");
+    loc.setAttribute("aria-expanded", "false");
+    loc.addEventListener("click", () => {
+      if (tile.panel) return tile.panel.close();
+      const panel = makePanel({ sources: () => [tile.meta.id],
+        onStart: (payloads) => { showTab("modifications"); generateMods(payloads); panel.close(); },
+        onClose: () => { tile.panel = null; loc.setAttribute("aria-expanded", "false"); } });
+      tile.panel = panel;
+      loc.setAttribute("aria-expanded", "true");
+      el.append(panel.el);
+      panel.el.querySelector("input").focus();
+    });
+    return h("div", { className: "acts" }, ...(change ? [change] : []), role === "original" ? extra : again, loc, dl);
   }
 
   tile.show = async () => {
@@ -579,7 +732,7 @@ function makeTile(opts) {
     if (tile.dead || tile.lease !== lease) return;
     tile.blob = lease.blob;
     tile.url = lease.url;
-    const text = (role === "modification" && meta.change) || meta.prompt || "Зображення";
+    const text = (isMod(meta) && meta.change) || meta.prompt || "Зображення";
     const img = h("img", { className: "thumb", src: tile.url, alt: text, title: text });
     const open = h("button", { type: "button", className: "imgbtn", title: text }, img);
     if (role === "chooser") {   // a click on the picture picks it; the checkbox stays the keyboard control
@@ -595,6 +748,11 @@ function makeTile(opts) {
     body.replaceChildren(open);
     if (role !== "chooser" && !el.querySelector(".acts")) {
       if (role === "modification" && meta.change) el.append(h("div", { className: "mut small clip" }, meta.change));
+      if (role === "modification" && meta.market && (marketOf(meta.market) || {}).status === "planned") el.append(h("div", { className: "mut small" }, "планується"));
+      if (role === "modification" && meta.parent !== rootOf(meta)) {   // made from another modification
+        const from = store.mods.find((m) => m.id === meta.parent);
+        el.append(h("div", { className: "mut small clip from" }, "з: " + (from ? from.change || "варіації" : "зміненого")));
+      }
       if (role === "modification" && FORMAT_NAME[meta.size]) el.append(h("div", { className: "mut small fmt" }, FORMAT_NAME[meta.size]));
       el.append(actions());
     }
@@ -631,6 +789,7 @@ function makeTile(opts) {
 
   tile.remove = () => {
     tile.dead = true;
+    if (tile.panel) tile.panel.close();
     stopTimer();
     if (tile.lease) release(tile.lease);
     el.remove();
@@ -684,57 +843,76 @@ $("prompt").addEventListener("keydown", (e) => {
   }
 });
 
-/* ---------- the strip of originals (modifications, step 1) ---------- */
-const strip = new Map();   // original id -> live chooser tile
-let stripRest = [];
+/* ---------- strips of sources (chooser tiles): one for «Модифікації», one for «Анімація» ---------- */
+// ids: strip, more, pickall, msg elements. cap(): most sources one click may take (or nothing).
+function makeStrip(target, ids, cap) {
+  const st = { target, rest: [], live: new Map() };   // live: image id -> chooser tile
+  st.chosen = () => [...tiles].filter((t) => t.role === "chooser" && t.target === target && t.picked());
 
-function addChooser(meta, toFront) {
-  const existing = strip.get(meta.id);
-  if (existing && !existing.dead) return existing;
-  const t = makeTile({ role: "chooser", meta, onRemove: () => { if (strip.get(meta.id) === t) strip.delete(meta.id); } });
-  strip.set(meta.id, t);
-  if (toFront) $("strip").prepend(t.el); else $("strip").append(t.el);
-  t.submit();
-  return t;
+  st.add = (meta, toFront) => {
+    const existing = st.live.get(meta.id);
+    if (existing && !existing.dead) return existing;
+    const t = makeTile({ role: "chooser", meta, target, onRemove: () => { if (st.live.get(meta.id) === t) st.live.delete(meta.id); } });
+    st.live.set(meta.id, t);
+    if (toFront) $(ids.strip).prepend(t.el); else $(ids.strip).append(t.el);
+    t.submit();
+    return t;
+  };
+
+  st.showMore = () => {
+    st.rest.splice(0, PAGE).forEach((meta) => st.add(meta, false));
+    updateChrome();
+  };
+  $(ids.more).addEventListener("click", st.showMore);
+
+  st.pick = (id) => {
+    const meta = findMeta(id);
+    if (!meta) return;
+    st.rest = st.rest.filter((m) => m.id !== id);
+    const t = st.add(meta, true);
+    t.setPicked(true);
+    updateChrome();
+    t.el.scrollIntoView({ block: "nearest", inline: "nearest" });
+  };
+
+  // «Вибрати всі» / «Зняти»: for modifications never selects more than one click may start.
+  $(ids.pickall).addEventListener("click", () => {
+    $(ids.msg).textContent = "";
+    const picked = st.chosen();
+    if (picked.length) {
+      picked.forEach((t) => t.setPicked(false));
+      return updateChrome();
+    }
+    const all = [...tiles].filter((t) => t.role === "chooser" && t.target === target)
+      .sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+    const n = cap ? cap() : all.length;
+    all.slice(0, n).forEach((t) => t.setPicked(true));
+    if (all.length > n) $(ids.msg).textContent = "Вибрано перші " + n + ": максимум " + MAX_BATCH + " за раз.";
+    updateChrome();
+  });
+  return st;
 }
 
-function showMoreStrip() {
-  stripRest.splice(0, PAGE).forEach((meta) => addChooser(meta, false));
-  updateChrome();
-}
-$("smore").addEventListener("click", showMoreStrip);
+const stripMods = makeStrip("mods", { strip: "strip", more: "smore", pickall: "pickall", msg: "mmsg" },
+  () => Math.max(1, Math.floor(MAX_BATCH / state.mcount)));
+const stripAnim = makeStrip("anim", { strip: "astrip", more: "asmore", pickall: "apickall", msg: "amsg" });
+let animBuilt = false;
 
-function pickOriginal(id) {
-  const meta = store.originals.find((m) => m.id === id);
-  if (!meta) return;
-  stripRest = stripRest.filter((m) => m.id !== id);
-  const t = addChooser(meta, true);
-  t.setPicked(true);
-  updateChrome();
-  t.el.scrollIntoView({ block: "nearest", inline: "nearest" });
+// Originals and modifications, newest first; built only when the tab is first opened.
+function buildAnim() {
+  if (animBuilt || !loaded) return;
+  animBuilt = true;
+  stripAnim.rest = [...store.originals, ...store.mods].sort((a, b) => b.created - a.created);
+  stripAnim.showMore();
 }
-
-// «Вибрати всі» / «Зняти»: never selects more than one click may start.
-$("pickall").addEventListener("click", () => {
-  $("mmsg").textContent = "";
-  const picked = chosen();
-  if (picked.length) {
-    picked.forEach((t) => t.setPicked(false));
-    return updateChrome();
-  }
-  const cap = Math.max(1, Math.floor(MAX_BATCH / state.mcount));
-  const all = [...tiles].filter((t) => t.role === "chooser")
-    .sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
-  all.slice(0, cap).forEach((t) => t.setPicked(true));
-  if (all.length > cap) $("mmsg").textContent = "Вибрано перші " + cap + ": максимум " + MAX_BATCH + " за раз.";
-  updateChrome();
-});
+const offerToAnim = (meta) => { if (animBuilt) stripAnim.add(meta, true); else stripAnim.rest.unshift(meta); };
 
 // A freshly generated original joins the data and the strip (or waits for the strip to be built).
 function addOriginal(meta) {
   store.originals.unshift(meta);
   originalIds.add(meta.id);
-  if (modsBuilt) addChooser(meta, true); else stripRest.unshift(meta);
+  if (modsBuilt) stripMods.add(meta, true); else stripMods.rest.unshift(meta);
+  offerToAnim(meta);
   updateChrome();
 }
 
@@ -852,7 +1030,7 @@ function buildSub(sub) {
   for (const s of sub.sections.values()) for (const t of s.members) if (t.meta) shown.add(t.meta.id);
   const byKey = new Map();
   for (const meta of store.mods) {
-    if (meta.parent !== sub.parent || shown.has(meta.id)) continue;
+    if (rootOf(meta) !== sub.parent || shown.has(meta.id)) continue;
     const key = sectionKey(meta.change, meta.size);
     byKey.set(key, [...(byKey.get(key) || []), meta]);
   }
@@ -864,7 +1042,7 @@ function buildSub(sub) {
 }
 
 const subCount = (sub) => {
-  let n = store.mods.filter((m) => m.parent === sub.parent).length;
+  let n = store.mods.filter((m) => rootOf(m) === sub.parent).length;
   for (const s of sub.sections.values()) for (const t of s.members) if (!t.meta) n++;
   return n;
 };
@@ -919,7 +1097,7 @@ function syncSubs() {
   if (!modsBuilt) return;
   let removed = false;
   for (const [id, sub] of [...subs]) {
-    const saved = store.mods.some((m) => m.parent === id);
+    const saved = store.mods.some((m) => rootOf(m) === id);
     if (sub.sections.size || sub.pending.size || (!sub.built && saved)) continue;
     if (sub.thumb) sub.thumb.destroy();
     sub.panel.remove();
@@ -953,32 +1131,36 @@ function buildMods() {
   if (modsBuilt || !loaded) return;
   modsBuilt = true;
   for (const meta of store.mods) {
-    if (!subs.has(meta.parent)) { makeSub(meta.parent, meta.prompt); subOrder.push(meta.parent); }
+    const top = rootOf(meta);
+    if (!subs.has(top)) { makeSub(top, meta.prompt); subOrder.push(top); }
   }
   const first = wantedSub && subs.has(wantedSub) ? wantedSub : subOrder[0];
   wantedSub = null;
   if (first) selectSub(first, false);   // before anything calls updateChrome, which would pick the first sub-tab itself
-  showMoreStrip();
+  stripMods.showMore();
 }
 
 /* ---------- modifications: start ---------- */
 function generateMods(payloads) {
+  // Every source (an original or a modification) lands in the sub-tab of its top original.
+  const topOf = (id) => { const m = findMeta(id); return m && isMod(m) ? rootOf(m) : id; };
   const byParent = new Map();
-  for (const p of payloads) byParent.set(p.parent, [...(byParent.get(p.parent) || []), p]);
+  for (const p of payloads) byParent.set(topOf(p.parent), [...(byParent.get(topOf(p.parent)) || []), p]);
   const fresh = [];
   // Walk backwards so the first selected original ends up as the first sub-tab.
   for (const [parent, list] of [...byParent].reverse()) {
     const orig = store.originals.find((m) => m.id === parent);
-    const meta = orig || store.mods.find((m) => m.parent === parent);
+    const meta = orig || store.mods.find((m) => rootOf(m) === parent);
     let sub = subs.get(parent);
     if (!sub) sub = makeSub(parent, meta && meta.prompt);
     subOrder = [parent, ...subOrder.filter((x) => x !== parent)];
     const made = [];
     for (const payload of list) {
-      const size = payload.format ? FORMAT_SIZE[payload.format] : (orig && orig.size) || "";
-      const section = sectionFor(sub, payload.change, size, "top");
-      const tile = makeTile({ role: "modification", payload, route: "/api/modify", group: section,
-        onFresh: (m) => { store.mods.unshift(m); updateChrome(); } });
+      const change = payload.market ? marketLabel(payload.market) : payload.change;
+      const size = payload.format ? FORMAT_SIZE[payload.format] : (findMeta(payload.parent) || {}).size || "";
+      const section = sectionFor(sub, change, size, "top");
+      const tile = makeTile({ role: "modification", payload, route: payload.market ? "/api/localize" : "/api/modify", group: section,
+        onFresh: (m) => { store.mods.unshift(m); offerToAnim(m); updateChrome(); } });
       section.addFirst([tile]);
       made.push(tile);
     }
@@ -1007,6 +1189,15 @@ function generateModsFromForm() {
 }
 
 $("mgo").addEventListener("click", generateModsFromForm);
+// «Локалізувати вибране»: the chosen sources × the chosen markets
+$("locsel").addEventListener("click", () => {
+  const slot = $("locslot");
+  if (slot.firstChild) { for (const p of [...panels]) if (slot.contains(p.el)) p.close(); return; }
+  const panel = makePanel({ sources: () => chosen().map((t) => t.meta.id), onStart: generateMods,
+    onClose: () => $("locsel").setAttribute("aria-expanded", "false") });
+  $("locsel").setAttribute("aria-expanded", "true");
+  slot.append(panel.el);
+});
 $("change").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.repeat) { e.preventDefault(); generateModsFromForm(); }
 });
@@ -1037,11 +1228,10 @@ function forget(ids) {
   store.originals = store.originals.filter((m) => !gone.has(m.id));
   store.mods = store.mods.filter((m) => !gone.has(m.id));
   origRest = origRest.filter((m) => !gone.has(m.id));
-  stripRest = stripRest.filter((m) => !gone.has(m.id));
+  for (const st of [stripMods, stripAnim]) st.rest = st.rest.filter((m) => !gone.has(m.id));
   for (const id of gone) {
+    for (const st of [stripMods, stripAnim]) { const t = st.live.get(id); if (t) t.remove(); }
     if (originalIds.delete(id)) {
-      const t = strip.get(id);
-      if (t) t.remove();
       const sub = subs.get(id);
       if (sub) { sub.panel.classList.add("gone"); if (sub.thumb) sub.thumb.gone(); }
     }
@@ -1090,7 +1280,7 @@ async function start() {
     store.originals = o.slice();
     o.forEach((m) => originalIds.add(m.id));
     origRest = o.slice();
-    stripRest = o.slice();
+    stripMods.rest = o.slice();
     showMoreOriginals();
   } else {
     const text = originals.stale ? STALE : "Не вдалося завантажити галерею. Оновіть сторінку.";
@@ -1103,6 +1293,7 @@ async function start() {
   else $("mnote").textContent = mods.stale ? STALE : "Не вдалося завантажити модифікації. Оновіть сторінку.";
   loaded = true;
   if (active === "modifications") buildMods();
+  if (active === "animation") buildAnim();
   lockGen("startup", false);
   lockMod("startup", false);
   updateChrome();
